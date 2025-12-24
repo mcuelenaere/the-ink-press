@@ -9,6 +9,7 @@ import {
     fileExtensionFromMediaType,
     getRequiredEnv,
     isoTimestampForPath,
+    logStatus,
     mkdirp,
     sleep,
     writeJson
@@ -58,6 +59,9 @@ async function runCycle(cli: CliOptions) {
     const runDir = path.resolve(cli.out, runId);
     await mkdirp(runDir);
 
+    logStatus(`Cycle start (runId=${runId})`);
+    logStatus(`Preparing output dir: ${runDir}`);
+
     const manifest: Record<string, unknown> = {
         runId,
         startedAt: startedAt.toISOString(),
@@ -70,15 +74,26 @@ async function runCycle(cli: CliOptions) {
     };
 
     try {
-        const news = await fetchDailyNews({ query: cli.query, maxHeadlines: cli.headlines });
+        logStatus(`Headlines+prompt: starting (model=gateway:openai/gpt-5.2, query=${JSON.stringify(cli.query)}, maxHeadlines=${cli.headlines})`);
+        const news = await fetchDailyNews({
+            query: cli.query,
+            maxHeadlines: cli.headlines,
+            reporter: { info: (m) => logStatus(m) }
+        });
+        logStatus(`Headlines+prompt: received (${news.headlines.length} headlines)`);
 
         manifest.news = news;
 
+        logStatus(`Writing summary + image prompt files...`);
         await fs.promises.writeFile(path.join(runDir, 'summary.txt'), news.summary + '\n', 'utf8');
         await fs.promises.writeFile(path.join(runDir, 'image-prompt.txt'), news.imagePrompt + '\n', 'utf8');
 
         if (!cli.noImage) {
-            const imageResult = await generateGeminiImage({ imagePrompt: news.imagePrompt });
+            logStatus(`Image generation: starting (model=gateway:google/gemini-3-pro-image-preview)`);
+            const imageResult = await generateGeminiImage({
+                imagePrompt: news.imagePrompt,
+                reporter: { info: (m) => logStatus(m) }
+            });
             manifest.image = {
                 mediaType: imageResult.image?.mediaType ?? null,
                 hadImageFile: Boolean(imageResult.image),
@@ -88,9 +103,11 @@ async function runCycle(cli: CliOptions) {
             if (imageResult.image) {
                 const ext = fileExtensionFromMediaType(imageResult.image.mediaType);
                 const outPath = path.join(runDir, `image.${ext}`);
+                logStatus(`Writing image file: ${path.basename(outPath)} (${imageResult.image.mediaType}, ${imageResult.image.file.byteLength} bytes)`);
                 await fs.promises.writeFile(outPath, imageResult.image.file);
                 manifest.image = { ...(manifest.image as object), file: path.basename(outPath) };
             } else {
+                logStatus(`Image generation: no image file returned; writing debug file`);
                 await fs.promises.writeFile(
                     path.join(runDir, 'image-generation.txt'),
                     `No image file was returned.\n\nModel text output:\n${imageResult.rawText}\n`,
@@ -101,12 +118,15 @@ async function runCycle(cli: CliOptions) {
 
         manifest.finishedAt = new Date().toISOString();
         manifest.status = 'ok';
+        logStatus(`Cycle done (ok)`);
     } catch (err) {
         manifest.finishedAt = new Date().toISOString();
         manifest.status = 'error';
         manifest.error = err instanceof Error ? { message: err.message, stack: err.stack } : { message: String(err) };
+        logStatus(`Cycle done (error)`);
         throw err;
     } finally {
+        logStatus(`Writing manifest.json`);
         await writeJson(path.join(runDir, 'manifest.json'), manifest);
         // Helpful pointer in logs:
         // eslint-disable-next-line no-console

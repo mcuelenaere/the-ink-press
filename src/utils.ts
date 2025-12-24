@@ -30,4 +30,10 @@ export function fileExtensionFromMediaType(mediaType: string): string {
     return 'bin';
 }
 
+export function logStatus(message: string) {
+    const ts = new Date().toISOString();
+    // eslint-disable-next-line no-console
+    console.log(`[${ts}] ${message}`);
+}
+
 
