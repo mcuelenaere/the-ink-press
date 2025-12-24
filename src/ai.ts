@@ -1,7 +1,7 @@
 import { generateText, gateway, stepCountIs, Output, zodSchema } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
-import { getRequiredEnv } from './utils.js';
+import { getRequiredEnv } from './utils';
 
 const NewsResultSchema = z.object({
     headlines: z

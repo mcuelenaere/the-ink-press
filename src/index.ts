@@ -4,7 +4,7 @@ import { Command } from 'commander';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { fetchDailyNews, generateGeminiImage } from './ai.js';
+import { fetchDailyNews, generateGeminiImage } from './ai';
 import {
     fileExtensionFromMediaType,
     getRequiredEnv,
@@ -12,7 +12,7 @@ import {
     mkdirp,
     sleep,
     writeJson
-} from './utils.js';
+} from './utils';
 
 type CliOptions = {
     once: boolean;
