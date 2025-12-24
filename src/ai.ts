@@ -1,7 +1,6 @@
 import { streamText, gateway, stepCountIs, Output, zodSchema } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
-import { getRequiredEnv } from './utils';
 
 export type Reporter = {
     info: (message: string) => void;
@@ -123,9 +122,6 @@ export async function generateGeminiImage(options: {
     image?: { file: Uint8Array; mediaType: string };
     rawText: string;
 }> {
-    // AI Gateway uses AI_GATEWAY_API_KEY for API-key auth.
-    getRequiredEnv('AI_GATEWAY_API_KEY');
-
     const { imagePrompt, reporter } = options;
     const report = reporter?.info ?? (() => { });
     const startedAt = Date.now();
