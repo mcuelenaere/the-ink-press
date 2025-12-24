@@ -33,7 +33,7 @@ function parseCliArgs(argv: string[]): CliOptions {
         .option('--once', 'Run a single cycle and exit', false)
         .option('--interval-hours <n>', 'Loop interval in hours', (v) => Number(v), 24)
         .option('--query <string>', 'Search query for today’s headlines', 'top news headlines today')
-        .option('--headlines <n>', 'Number of headlines to include', (v) => Number(v), 5)
+        .option('--headlines <n>', 'Number of headlines to include', (v) => Number(v), 10)
         .option('--out <path>', 'Output directory', './out')
         .option('--no-image', 'Skip image generation (debug)', false)
         .parse(argv);
@@ -55,6 +55,13 @@ function parseCliArgs(argv: string[]): CliOptions {
 
 async function runCycle(cli: CliOptions) {
     const startedAt = new Date();
+    const dateLabel = new Intl.DateTimeFormat('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        timeZone: 'UTC'
+    }).format(startedAt);
+
     const runId = isoTimestampForPath(startedAt);
     const runDir = path.resolve(cli.out, runId);
     await mkdirp(runDir);
@@ -74,10 +81,13 @@ async function runCycle(cli: CliOptions) {
     };
 
     try {
-        logStatus(`Headlines+prompt: starting (model=gateway:openai/gpt-5.2, query=${JSON.stringify(cli.query)}, maxHeadlines=${cli.headlines})`);
+        logStatus(
+            `Headlines+prompt: starting (model=gateway:openai/gpt-5.2, date=${dateLabel}, query=${JSON.stringify(cli.query)}, maxHeadlines=${cli.headlines})`
+        );
         const news = await fetchDailyNews({
             query: cli.query,
             maxHeadlines: cli.headlines,
+            dateLabel,
             reporter: { info: (m) => logStatus(m) }
         });
         logStatus(`Headlines+prompt: received (${news.headlines.length} headlines)`);
@@ -86,12 +96,15 @@ async function runCycle(cli: CliOptions) {
 
         logStatus(`Writing summary + image prompt files...`);
         await fs.promises.writeFile(path.join(runDir, 'summary.txt'), news.summary + '\n', 'utf8');
+        await fs.promises.writeFile(path.join(runDir, 'caption.txt'), news.captionText + '\n', 'utf8');
+        await fs.promises.writeFile(path.join(runDir, 'concepts.txt'), news.concepts.join('\n') + '\n', 'utf8');
         await fs.promises.writeFile(path.join(runDir, 'image-prompt.txt'), news.imagePrompt + '\n', 'utf8');
 
         if (!cli.noImage) {
             logStatus(`Image generation: starting (model=gateway:google/gemini-3-pro-image-preview)`);
             const imageResult = await generateGeminiImage({
                 imagePrompt: news.imagePrompt,
+                captionText: news.captionText,
                 reporter: { info: (m) => logStatus(m) }
             });
             manifest.image = {

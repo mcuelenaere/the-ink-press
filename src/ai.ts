@@ -17,6 +17,7 @@ function toOneLineJson(value: unknown, maxLen = 240) {
 }
 
 const NewsResultSchema = z.object({
+    dateLabel: z.string().min(1),
     headlines: z
         .array(
             z.object({
@@ -27,6 +28,8 @@ const NewsResultSchema = z.object({
         )
         .min(1),
     summary: z.string().min(1),
+    concepts: z.array(z.string().min(1)).min(1).max(3),
+    captionText: z.string().min(1),
     imagePrompt: z.string().min(1),
 });
 
@@ -35,9 +38,10 @@ export type NewsResult = z.infer<typeof NewsResultSchema>;
 export async function fetchDailyNews(options: {
     query: string;
     maxHeadlines: number;
+    dateLabel: string;
     reporter?: Reporter;
 }): Promise<NewsResult> {
-    const { query, maxHeadlines, reporter } = options;
+    const { query, maxHeadlines, dateLabel, reporter } = options;
     const report = reporter?.info ?? (() => { });
     const startedAt = Date.now();
     let step = 0;
@@ -53,10 +57,13 @@ export async function fetchDailyNews(options: {
         output: Output.object({
             schema: zodSchema(NewsResultSchema),
             name: 'DailyBrief',
-            description: 'Headlines, summary, and an image prompt for an e-ink display.',
+            description:
+                'Headlines, summary, up to 3 visual concepts, caption text, and a painting-style image prompt for today.',
         }),
         prompt: [
-            `You are generating a daily brief and an image prompt for an e-ink display.`,
+            `You are generating a daily brief and an image prompt.`,
+            ``,
+            `Today is: ${dateLabel}`,
             ``,
             `Task: Use web search to find today's most important headlines for this query:`,
             `${query}`,
@@ -66,8 +73,15 @@ export async function fetchDailyNews(options: {
             `- Return at most ${maxHeadlines} headlines.`,
             `- Each headline MUST include a title, a canonical URL, and a short source name.`,
             `- Write a concise summary (5-8 sentences).`,
-            `- Write an imagePrompt that is visually descriptive and safe for general audiences.`,
-            `- The imagePrompt should work well for a monochrome e-ink style illustration.`,
+            `- Choose 1-3 short 'concepts' that best represent the day. This is the MAX number of concepts allowed in the image.`,
+            `- The image MUST ONLY depict those concepts (no more than 3).`,
+            `- Write captionText: a very brief, readable line (max ~10 words) that will be rendered as text in the image.`,
+            `  - The captionText MUST include the date (${dateLabel}) in some form.`,
+            `- Write an imagePrompt for a single painting (colors allowed).`,
+            `  - IMPORTANT: do NOT depict an e-book, e-ink device, screen, frame, UI, newspaper page, or any kind of display showing the image.`,
+            `  - IMPORTANT: do NOT depict a poster/mockup of an artwork; just paint the scene itself.`,
+            `  - The imagePrompt MUST instruct the model to include the captionText as short in-image text (tasteful, legible).`,
+            `  - The imagePrompt MUST include the date (${dateLabel}) explicitly.`,
             ``,
             `Return JSON matching the schema exactly.`,
         ].join('\n'),
@@ -117,12 +131,13 @@ export async function fetchDailyNews(options: {
 
 export async function generateGeminiImage(options: {
     imagePrompt: string;
+    captionText?: string;
     reporter?: Reporter;
 }): Promise<{
     image?: { file: Uint8Array; mediaType: string };
     rawText: string;
 }> {
-    const { imagePrompt, reporter } = options;
+    const { imagePrompt, captionText, reporter } = options;
     const report = reporter?.info ?? (() => { });
     const startedAt = Date.now();
 
@@ -133,6 +148,7 @@ export async function generateGeminiImage(options: {
         prompt: [
             `Generate exactly one image based on this prompt.`,
             `Do not return any additional text unless necessary.`,
+            captionText ? `Ensure the image includes this exact short text (legible): ${captionText}` : '',
             ``,
             imagePrompt,
         ].join('\n'),
