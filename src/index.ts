@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { fetchDailyNews, generateGeminiImage } from './ai';
+import { getInkposterConfig, uploadAndPoll } from './inkposter';
 import {
     fileExtensionFromMediaType,
     getRequiredEnv,
@@ -22,6 +23,7 @@ type CliOptions = {
     headlines: number;
     out: string;
     noImage: boolean;
+    upload: boolean;
 };
 
 function parseCliArgs(argv: string[]): CliOptions {
@@ -36,6 +38,7 @@ function parseCliArgs(argv: string[]): CliOptions {
         .option('--headlines <n>', 'Number of headlines to include', (v) => Number(v), 10)
         .option('--out <path>', 'Output directory', './out')
         .option('--no-image', 'Skip image generation (debug)', false)
+        .option('--upload', 'Upload generated image to Inkposter', false)
         .parse(argv);
 
     const opts = program.opts<CliOptions>();
@@ -119,6 +122,29 @@ async function runCycle(cli: CliOptions) {
                 logStatus(`Writing image file: ${path.basename(outPath)} (${imageResult.image.mediaType}, ${imageResult.image.file.byteLength} bytes)`);
                 await fs.promises.writeFile(outPath, imageResult.image.file);
                 manifest.image = { ...(manifest.image as object), file: path.basename(outPath) };
+
+                // Upload to Inkposter if requested
+                if (cli.upload) {
+                    logStatus(`Inkposter upload: starting`);
+                    const inkposterConfig = getInkposterConfig();
+                    const uploadResult = await uploadAndPoll(
+                        inkposterConfig,
+                        imageResult.image.file,
+                        imageResult.image.mediaType
+                    );
+                    manifest.inkposter = {
+                        uploaded: true,
+                        queueId: uploadResult.convertResponse.queueId,
+                        poll: {
+                            attempts: uploadResult.poll.attempts,
+                            elapsedMs: uploadResult.poll.elapsedMs,
+                            finalStatus: uploadResult.poll.finalResponse.status,
+                            finalMessage: uploadResult.poll.finalResponse.message ?? null,
+                            finalItem: uploadResult.poll.finalResponse.item ?? null,
+                        },
+                    };
+                    logStatus(`Inkposter upload: complete (status=${uploadResult.poll.finalResponse.status})`);
+                }
             } else {
                 logStatus(`Image generation: no image file returned; writing debug file`);
                 await fs.promises.writeFile(
@@ -152,9 +178,14 @@ async function main() {
     // Used for both the OpenAI+web_search step and the Gemini image generation step.
     getRequiredEnv('AI_GATEWAY_API_KEY');
 
+    // Validate Inkposter env vars early if upload is enabled
+    if (cli.upload) {
+        getInkposterConfig();
+    }
+
     // eslint-disable-next-line no-console
     console.log(
-        `the-ink-press starting (once=${cli.once}, intervalHours=${cli.intervalHours}, headlines=${cli.headlines}, noImage=${cli.noImage})`
+        `the-ink-press starting (once=${cli.once}, intervalHours=${cli.intervalHours}, headlines=${cli.headlines}, noImage=${cli.noImage}, upload=${cli.upload})`
     );
 
     while (true) {
