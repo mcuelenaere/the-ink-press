@@ -12,11 +12,14 @@ export type FrameResolution = {
     height: number;
 };
 
+export type RotationAngle = 0 | 90 | 180 | 270;
+
 export type InkposterConfig = {
     token: string;
     deviceId: string;
     frameUuid: string;
     frameModel: FrameModel;
+    rotate: RotationAngle;
 };
 
 export type ConvertResponse = {
@@ -95,12 +98,22 @@ function parseFrameModel(value: string): FrameModel {
     );
 }
 
+function parseRotation(value: string | undefined): RotationAngle {
+    if (!value) return 0;
+    const num = parseInt(value.trim(), 10);
+    if (num === 0 || num === 90 || num === 180 || num === 270) return num;
+    throw new Error(
+        `Invalid INKPOSTER_ROTATE: "${value}". Valid values: 0, 90, 180, 270`
+    );
+}
+
 export function getInkposterConfig(): InkposterConfig {
     return {
         token: getRequiredEnv('INKPOSTER_TOKEN'),
         deviceId: getRequiredEnv('INKPOSTER_DEVICE_ID'),
         frameUuid: getRequiredEnv('INKPOSTER_FRAME_UUID'),
         frameModel: parseFrameModel(getRequiredEnv('INKPOSTER_FRAME_MODEL')),
+        rotate: parseRotation(process.env.INKPOSTER_ROTATE),
     };
 }
 
@@ -136,10 +149,15 @@ function filenameFromMediaType(mediaType: string): string {
  * Resize an image to fit the target frame's resolution.
  * Uses cover fit (fills the frame, cropping if needed) to ensure exact dimensions.
  * Converts to JPEG for optimal compatibility with the Inkposter API.
+ *
+ * @param imageBytes - The original image bytes
+ * @param frameModel - Target frame model (determines resolution)
+ * @param rotate - Additional rotation in degrees (0, 90, 180, 270). Applied after EXIF auto-rotation.
  */
 export async function resizeImageForFrame(
     imageBytes: Uint8Array,
-    frameModel: FrameModel
+    frameModel: FrameModel,
+    rotate: RotationAngle = 0
 ): Promise<ResizeResult> {
     const resolution = FRAME_RESOLUTIONS[frameModel];
 
@@ -148,14 +166,26 @@ export async function resizeImageForFrame(
     const originalWidth = metadata.width ?? 0;
     const originalHeight = metadata.height ?? 0;
 
+    const rotateMsg = rotate !== 0 ? `, rotate ${rotate}°` : '';
     logStatus(
         `INKPOSTER: resizing image from ${originalWidth}x${originalHeight} ` +
-        `to ${resolution.width}x${resolution.height} for ${frameModel}`
+        `to ${resolution.width}x${resolution.height} for ${frameModel}${rotateMsg}`
     );
 
-    // Resize with cover fit (fills the frame exactly, may crop)
-    // Using high-quality Lanczos3 resampling
-    const resizedBuffer = await sharp(imageBytes)
+    // Build the sharp pipeline:
+    // 1. Auto-rotate based on EXIF orientation (rotate() with no args)
+    // 2. Apply additional rotation if specified
+    // 3. Resize with cover fit
+    // 4. Convert to JPEG
+    let pipeline = sharp(imageBytes)
+        .rotate();  // Auto-rotate based on EXIF orientation
+
+    // Apply additional rotation if specified
+    if (rotate !== 0) {
+        pipeline = pipeline.rotate(rotate);
+    }
+
+    const resizedBuffer = await pipeline
         .resize(resolution.width, resolution.height, {
             fit: 'cover',
             position: 'centre',
@@ -306,14 +336,15 @@ export async function pollIsConverted(
 /**
  * Resize an image and upload it to Inkposter, then poll until conversion completes.
  * The image is automatically resized to match the configured frame model's resolution.
+ * If INKPOSTER_ROTATE is set, the image is rotated by that amount (0, 90, 180, 270).
  */
 export async function uploadAndPoll(
     config: InkposterConfig,
     imageBytes: Uint8Array,
     mediaType: string
 ): Promise<UploadResult> {
-    // Resize image to match frame resolution
-    const resize = await resizeImageForFrame(imageBytes, config.frameModel);
+    // Resize image to match frame resolution (with optional rotation)
+    const resize = await resizeImageForFrame(imageBytes, config.frameModel, config.rotate);
 
     // Upload resized image
     const convertResponse = await uploadConvert(config, resize.resizedBytes, resize.mediaType);
