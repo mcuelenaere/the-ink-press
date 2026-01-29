@@ -1,13 +1,22 @@
+import sharp from 'sharp';
 import { getRequiredEnv, logStatus, sleep } from './utils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+export type FrameModel = 'Frame_13_3' | 'Frame_28_5' | 'Frame_31_5';
+
+export type FrameResolution = {
+    width: number;
+    height: number;
+};
+
 export type InkposterConfig = {
     token: string;
     deviceId: string;
     frameUuid: string;
+    frameModel: FrameModel;
 };
 
 export type ConvertResponse = {
@@ -27,9 +36,19 @@ export type PollResult = {
     finalResponse: IsConvertedResponse;
 };
 
+export type ResizeResult = {
+    resizedBytes: Uint8Array;
+    mediaType: string;
+    originalWidth: number;
+    originalHeight: number;
+    targetWidth: number;
+    targetHeight: number;
+};
+
 export type UploadResult = {
     convertResponse: ConvertResponse;
     poll: PollResult;
+    resize: ResizeResult;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,16 +73,39 @@ const CONVERT_EXTRA_HEADERS = {
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 120_000;
 
+// Frame resolutions (from Inkposter product specs)
+const FRAME_RESOLUTIONS: Record<FrameModel, FrameResolution> = {
+    Frame_13_3: { width: 1200, height: 1600 },  // 13.3" portrait
+    Frame_28_5: { width: 2160, height: 3060 },  // 28.5" portrait
+    Frame_31_5: { width: 2560, height: 1440 },  // 31.5" landscape
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
 // ─────────────────────────────────────────────────────────────────────────────
+
+function parseFrameModel(value: string): FrameModel {
+    const normalized = value.trim();
+    if (normalized === 'Frame_13_3' || normalized === '13.3') return 'Frame_13_3';
+    if (normalized === 'Frame_28_5' || normalized === '28.5') return 'Frame_28_5';
+    if (normalized === 'Frame_31_5' || normalized === '31.5') return 'Frame_31_5';
+    throw new Error(
+        `Invalid INKPOSTER_FRAME_MODEL: "${value}". ` +
+        `Valid values: Frame_13_3, Frame_28_5, Frame_31_5 (or 13.3, 28.5, 31.5)`
+    );
+}
 
 export function getInkposterConfig(): InkposterConfig {
     return {
         token: getRequiredEnv('INKPOSTER_TOKEN'),
         deviceId: getRequiredEnv('INKPOSTER_DEVICE_ID'),
         frameUuid: getRequiredEnv('INKPOSTER_FRAME_UUID'),
+        frameModel: parseFrameModel(getRequiredEnv('INKPOSTER_FRAME_MODEL')),
     };
+}
+
+export function getFrameResolution(model: FrameModel): FrameResolution {
+    return FRAME_RESOLUTIONS[model];
 }
 
 function buildHeaders(config: InkposterConfig, extra: Record<string, string> = {}): Record<string, string> {
@@ -84,6 +126,58 @@ function filenameFromMediaType(mediaType: string): string {
     if (mediaType === 'image/webp') return 'userimage.webp';
     // Default to jpg for jpeg or unknown
     return 'userimage.jpg';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Image Resizing
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resize an image to fit the target frame's resolution.
+ * Uses cover fit (fills the frame, cropping if needed) to ensure exact dimensions.
+ * Converts to JPEG for optimal compatibility with the Inkposter API.
+ */
+export async function resizeImageForFrame(
+    imageBytes: Uint8Array,
+    frameModel: FrameModel
+): Promise<ResizeResult> {
+    const resolution = FRAME_RESOLUTIONS[frameModel];
+
+    // Get original image metadata
+    const metadata = await sharp(imageBytes).metadata();
+    const originalWidth = metadata.width ?? 0;
+    const originalHeight = metadata.height ?? 0;
+
+    logStatus(
+        `INKPOSTER: resizing image from ${originalWidth}x${originalHeight} ` +
+        `to ${resolution.width}x${resolution.height} for ${frameModel}`
+    );
+
+    // Resize with cover fit (fills the frame exactly, may crop)
+    // Using high-quality Lanczos3 resampling
+    const resizedBuffer = await sharp(imageBytes)
+        .resize(resolution.width, resolution.height, {
+            fit: 'cover',
+            position: 'centre',
+        })
+        .jpeg({
+            quality: 95,
+            mozjpeg: true,  // Better compression with mozjpeg
+        })
+        .toBuffer();
+
+    logStatus(
+        `INKPOSTER: image resized (${resizedBuffer.byteLength} bytes, image/jpeg)`
+    );
+
+    return {
+        resizedBytes: new Uint8Array(resizedBuffer),
+        mediaType: 'image/jpeg',
+        originalWidth,
+        originalHeight,
+        targetWidth: resolution.width,
+        targetHeight: resolution.height,
+    };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -210,14 +304,20 @@ export async function pollIsConverted(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Upload an image and poll until conversion completes.
+ * Resize an image and upload it to Inkposter, then poll until conversion completes.
+ * The image is automatically resized to match the configured frame model's resolution.
  */
 export async function uploadAndPoll(
     config: InkposterConfig,
     imageBytes: Uint8Array,
     mediaType: string
 ): Promise<UploadResult> {
-    const convertResponse = await uploadConvert(config, imageBytes, mediaType);
+    // Resize image to match frame resolution
+    const resize = await resizeImageForFrame(imageBytes, config.frameModel);
+
+    // Upload resized image
+    const convertResponse = await uploadConvert(config, resize.resizedBytes, resize.mediaType);
     const poll = await pollIsConverted(config, convertResponse.queueId);
-    return { convertResponse, poll };
+
+    return { convertResponse, poll, resize };
 }

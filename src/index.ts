@@ -135,6 +135,11 @@ async function runCycle(cli: CliOptions) {
                     manifest.inkposter = {
                         uploaded: true,
                         queueId: uploadResult.convertResponse.queueId,
+                        resize: {
+                            originalSize: `${uploadResult.resize.originalWidth}x${uploadResult.resize.originalHeight}`,
+                            targetSize: `${uploadResult.resize.targetWidth}x${uploadResult.resize.targetHeight}`,
+                            frameModel: inkposterConfig.frameModel,
+                        },
                         poll: {
                             attempts: uploadResult.poll.attempts,
                             elapsedMs: uploadResult.poll.elapsedMs,

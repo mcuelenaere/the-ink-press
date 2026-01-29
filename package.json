@@ -16,6 +16,7 @@
         "ai": "^6.0.3",
         "commander": "^14.0.2",
         "dotenv": "^17.2.3",
+        "sharp": "^0.34.5",
         "zod": "^4.2.1"
     },
     "devDependencies": {
