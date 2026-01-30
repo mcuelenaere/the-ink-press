@@ -237,7 +237,7 @@ export async function uploadConvert(
 
     // file part: the image bytes
     const filename = filenameFromMediaType(mediaType);
-    const imageBlob = new Blob([imageBytes], { type: mediaType });
+    const imageBlob = new Blob([Buffer.from(imageBytes)], { type: mediaType });
     formData.append('file', imageBlob, filename);
 
     const headers = buildHeaders(config, CONVERT_EXTRA_HEADERS);
