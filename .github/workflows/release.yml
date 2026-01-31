@@ -1,21 +1,54 @@
-name: Build and Push Docker Image
+name: Release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - main
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  build-binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: bun-linux-x64
+            artifact: the-ink-press-linux-x64
+          - target: bun-linux-arm64
+            artifact: the-ink-press-linux-arm64
+          - target: bun-darwin-x64
+            artifact: the-ink-press-darwin-x64
+          - target: bun-darwin-arm64
+            artifact: the-ink-press-darwin-arm64
+          - target: bun-windows-x64
+            artifact: the-ink-press-windows-x64.exe
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies (all platforms)
+        run: bun install --frozen-lockfile --os='*' --arch='*'
+
+      - name: Build binary
+        run: bun build src/index.ts --compile --minify --target=${{ matrix.target }} --outfile=dist/${{ matrix.artifact }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          if-no-files-found: error
+          retention-days: 1
+
+  build-docker:
     strategy:
       fail-fast: false
       matrix:
@@ -39,7 +72,6 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Container Registry
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -61,17 +93,15 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.suffix }}
           cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
-        if: github.event_name != 'pull_request'
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
-        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v6
         with:
           name: digests-${{ matrix.suffix }}
@@ -79,9 +109,27 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  merge:
-    needs: build
-    if: github.event_name != 'pull_request'
+  upload-binaries:
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+          pattern: the-ink-press-*
+          merge-multiple: true
+
+      - name: Upload binaries to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: binaries/*
+
+  merge-docker:
+    needs: build-docker
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -111,10 +159,9 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=
 
       - name: Create multi-platform manifest
         working-directory: /tmp/digests
