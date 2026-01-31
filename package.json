@@ -13,7 +13,7 @@
     },
     "dependencies": {
         "@ai-sdk/openai": "^3.0.23",
-        "ai": "^6.0.3",
+        "ai": "^6.0.64",
         "commander": "^14.0.2",
         "sharp": "^0.34.5",
         "zod": "^4.2.1"
