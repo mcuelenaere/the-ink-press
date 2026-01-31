@@ -10,7 +10,8 @@
         "dev": "bun run src/index.ts",
         "build": "bun build src/index.ts --target=bun --outdir=dist --minify",
         "compile": "bun build src/index.ts --compile --minify --outfile=dist/the-ink-press",
-        "start": "bun dist/index.js"
+        "start": "bun dist/index.js",
+        "typecheck": "tsc --noEmit"
     },
     "dependencies": {
         "@ai-sdk/openai": "^3.0.23",
