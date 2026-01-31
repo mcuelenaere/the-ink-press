@@ -11,7 +11,9 @@
         "build": "bun build src/index.ts --target=bun --outdir=dist --minify",
         "compile": "bun build src/index.ts --compile --minify --outfile=dist/the-ink-press",
         "start": "bun dist/index.js",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "lint": "biome check",
+        "format": "biome check --write"
     },
     "dependencies": {
         "@ai-sdk/openai": "^3.0.23",
@@ -21,6 +23,7 @@
         "zod": "^4.3.6"
     },
     "devDependencies": {
+        "@biomejs/biome": "^2.3.13",
         "@types/bun": "latest",
         "typescript": "^5.9.3"
     },
