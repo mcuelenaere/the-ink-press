@@ -1,20 +1,19 @@
-FROM node:24-alpine AS builder
+FROM oven/bun:1 AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile
 
 COPY . .
-RUN npm run build
+RUN bun run build
 
-FROM node:24-alpine
+FROM oven/bun:1-slim
 
 WORKDIR /app
 
-# Install Sharp with platform-specific native binaries for Alpine/musl
-RUN npm install --omit=dev sharp
-
+# Copy built output and node_modules (needed for sharp native binaries)
 COPY --from=builder /app/dist .
+COPY --from=builder /app/node_modules ./node_modules
 
-ENTRYPOINT ["node", "index.js"]
+ENTRYPOINT ["bun", "index.js"]

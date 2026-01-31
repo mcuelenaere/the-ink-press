@@ -4,8 +4,8 @@
         "lib": [
             "ES2022"
         ],
-        "module": "CommonJS",
-        "moduleResolution": "Node",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
         "outDir": "./dist",
         "rootDir": "./src",
         "strict": true,
@@ -14,7 +14,7 @@
         "forceConsistentCasingInFileNames": true,
         "resolveJsonModule": true,
         "types": [
-            "node"
+            "bun-types"
         ]
     },
     "include": [

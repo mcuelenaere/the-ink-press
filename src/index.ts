@@ -1,5 +1,3 @@
-import 'dotenv/config';
-
 import { Command } from 'commander';
 import fs from 'node:fs';
 import path from 'node:path';
