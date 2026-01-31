@@ -19,7 +19,7 @@ export async function mkdirp(dir: string) {
 export async function writeJson(filePath: string, data: unknown) {
 	await fs.promises.writeFile(
 		filePath,
-		JSON.stringify(data, null, 2) + "\n",
+		`${JSON.stringify(data, null, 2)}\n`,
 		"utf8",
 	);
 }

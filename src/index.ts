@@ -124,22 +124,22 @@ async function runCycle(cli: CliOptions) {
 		logStatus(`Writing summary + image prompt files...`);
 		await fs.promises.writeFile(
 			path.join(runDir, "summary.txt"),
-			news.summary + "\n",
+			`${news.summary}\n`,
 			"utf8",
 		);
 		await fs.promises.writeFile(
 			path.join(runDir, "caption.txt"),
-			news.captionText + "\n",
+			`${news.captionText}\n`,
 			"utf8",
 		);
 		await fs.promises.writeFile(
 			path.join(runDir, "concepts.txt"),
-			news.concepts.join("\n") + "\n",
+			`${news.concepts.join("\n")}\n`,
 			"utf8",
 		);
 		await fs.promises.writeFile(
 			path.join(runDir, "image-prompt.txt"),
-			news.imagePrompt + "\n",
+			`${news.imagePrompt}\n`,
 			"utf8",
 		);
 
@@ -177,7 +177,6 @@ async function runCycle(cli: CliOptions) {
 					const uploadResult = await uploadAndPoll(
 						inkposterConfig,
 						imageResult.image.file,
-						imageResult.image.mediaType,
 					);
 					manifest.inkposter = {
 						uploaded: true,

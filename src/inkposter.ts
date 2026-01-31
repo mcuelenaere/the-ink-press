@@ -378,7 +378,6 @@ export async function pollIsConverted(
 export async function uploadAndPoll(
 	config: InkposterConfig,
 	imageBytes: Uint8Array,
-	mediaType: string,
 ): Promise<UploadResult> {
 	// Resize image to match frame resolution (with optional rotation)
 	const resize = await resizeImageForFrame(

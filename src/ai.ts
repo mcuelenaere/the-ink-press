@@ -10,7 +10,7 @@ function toOneLineJson(value: unknown, maxLen = 240) {
 	try {
 		const s = JSON.stringify(value);
 		if (s.length <= maxLen) return s;
-		return s.slice(0, maxLen - 3) + "...";
+		return `${s.slice(0, maxLen - 3)}...`;
 	} catch {
 		return "[unserializable]";
 	}
