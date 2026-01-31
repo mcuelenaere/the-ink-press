@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import { Transformer, Orientation, ResizeFit, compressJpeg } from '@napi-rs/image';
 import { getRequiredEnv, logStatus, sleep } from './utils';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +141,15 @@ function filenameFromMediaType(mediaType: string): string {
     return 'userimage.jpg';
 }
 
+function rotationAngleToOrientation(angle: RotationAngle): Orientation | undefined {
+    switch (angle) {
+        case 0: return undefined; // No rotation
+        case 90: return Orientation.Rotate90Cw;
+        case 180: return Orientation.Rotate180;
+        case 270: return Orientation.Rotate270Cw;
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Image Resizing
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,7 +161,7 @@ function filenameFromMediaType(mediaType: string): string {
  *
  * @param imageBytes - The original image bytes
  * @param frameModel - Target frame model (determines resolution)
- * @param rotate - Additional rotation in degrees (0, 90, 180, 270). Applied after EXIF auto-rotation.
+ * @param rotate - Rotation in degrees (0, 90, 180, 270).
  */
 export async function resizeImageForFrame(
     imageBytes: Uint8Array,
@@ -162,7 +171,8 @@ export async function resizeImageForFrame(
     const resolution = FRAME_RESOLUTIONS[frameModel];
 
     // Get original image metadata
-    const metadata = await sharp(imageBytes).metadata();
+    const transformer = new Transformer(imageBytes);
+    const metadata = await transformer.metadata();
     const originalWidth = metadata.width ?? 0;
     const originalHeight = metadata.height ?? 0;
 
@@ -172,29 +182,32 @@ export async function resizeImageForFrame(
         `to ${resolution.width}x${resolution.height} for ${frameModel}${rotateMsg}`
     );
 
-    // Build the sharp pipeline:
-    // 1. Auto-rotate based on EXIF orientation (rotate() with no args)
-    // 2. Apply additional rotation if specified
-    // 3. Resize with cover fit
-    // 4. Convert to JPEG
-    let pipeline = sharp(imageBytes)
-        .rotate();  // Auto-rotate based on EXIF orientation
+    // Build the @napi-rs/image pipeline:
+    // 1. Apply rotation if specified
+    // 2. Resize with cover fit
+    // 3. Convert to JPEG with mozjpeg compression
+    let pipeline = new Transformer(imageBytes);
 
-    // Apply additional rotation if specified
-    if (rotate !== 0) {
-        pipeline = pipeline.rotate(rotate);
+    // Apply rotation if specified
+    const orientation = rotationAngleToOrientation(rotate);
+    if (orientation) {
+        pipeline = pipeline.rotate(orientation);
     }
 
-    const resizedBuffer = await pipeline
-        .resize(resolution.width, resolution.height, {
-            fit: 'cover',
-            position: 'centre',
+    // Resize with cover fit and encode to JPEG
+    const jpegBuffer = await pipeline
+        .resize({
+            width: resolution.width,
+            height: resolution.height,
+            fit: ResizeFit.Cover,
         })
-        .jpeg({
-            quality: 95,
-            mozjpeg: true,  // Better compression with mozjpeg
-        })
-        .toBuffer();
+        .jpeg(100);
+
+    // Apply mozjpeg compression for better file size
+    const resizedBuffer = await compressJpeg(jpegBuffer, {
+        quality: 95,
+        optimizeScans: true,
+    });
 
     logStatus(
         `INKPOSTER: image resized (${resizedBuffer.byteLength} bytes, image/jpeg)`
