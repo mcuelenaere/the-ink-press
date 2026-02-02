@@ -2,13 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { Command } from "commander";
 
-import {
-	fetchDailyNews,
-	generateImage,
-	HEADLINES_MODEL,
-	IMAGE_MODEL,
-} from "./ai";
+import { generateImage, HEADLINES_MODEL, IMAGE_MODEL } from "./ai";
 import { getInkposterConfig, InkposterAuth, uploadAndPoll } from "./inkposter";
+import { fetchDailyNews } from "./news";
+import type { NewsSourceId } from "./news-sources";
+import { isNewsSourceId, NEWS_SOURCE_IDS } from "./news-sources";
 import {
 	fileExtensionFromMediaType,
 	getRequiredEnv,
@@ -25,7 +23,45 @@ type CliOptions = {
 	out: string;
 	noImage: boolean;
 	upload: boolean;
+	newsSource: NewsSourceId;
+	rssFeeds: string[];
 };
+
+const DEFAULT_NEWS_SOURCE: NewsSourceId = "chatgpt-web-search";
+
+function collectRssFeeds(value: string, previous: string[]) {
+	const parts = value
+		.split(",")
+		.map((part) => part.trim())
+		.filter(Boolean);
+	return previous.concat(parts);
+}
+
+function normalizeRssFeeds(values: string[]): string[] {
+	const unique = new Set<string>();
+	const feeds: string[] = [];
+
+	for (const value of values) {
+		const trimmed = value.trim();
+		if (!trimmed) continue;
+		let url: URL;
+		try {
+			url = new URL(trimmed);
+		} catch {
+			throw new Error(`Invalid RSS feed URL: ${trimmed}`);
+		}
+		if (url.protocol !== "http:" && url.protocol !== "https:") {
+			throw new Error(`RSS feed URL must be http or https: ${url.toString()}`);
+		}
+		const normalized = url.toString();
+		if (!unique.has(normalized)) {
+			unique.add(normalized);
+			feeds.push(normalized);
+		}
+	}
+
+	return feeds;
+}
 
 function parseCliArgs(argv: string[]): CliOptions {
 	const program = new Command();
@@ -46,6 +82,17 @@ function parseCliArgs(argv: string[]): CliOptions {
 			(v) => Number(v),
 			10,
 		)
+		.option(
+			"--news-source <id>",
+			`Headline source module (${NEWS_SOURCE_IDS.join(", ")})`,
+			DEFAULT_NEWS_SOURCE,
+		)
+		.option(
+			"--rss <url>",
+			"RSS feed URL (repeatable or comma-separated)",
+			collectRssFeeds,
+			[],
+		)
 		.option("--out <path>", "Output directory", "./out")
 		.option("--no-image", "Skip image generation (debug)")
 		.option("--upload", "Upload generated image to Inkposter", false)
@@ -57,6 +104,8 @@ function parseCliArgs(argv: string[]): CliOptions {
 		out: string;
 		image: boolean;
 		upload: boolean;
+		newsSource: string;
+		rss: string[];
 	}>();
 
 	if (
@@ -69,12 +118,40 @@ function parseCliArgs(argv: string[]): CliOptions {
 		);
 	}
 
+	const rssFeeds = normalizeRssFeeds(opts.rss);
+	let newsSource = opts.newsSource;
+	const newsSourceSource = program.getOptionValueSource("newsSource");
+
+	if (rssFeeds.length > 0 && newsSourceSource !== "cli") {
+		newsSource = "rss-feeds";
+	}
+
+	if (!isNewsSourceId(newsSource)) {
+		throw new Error(
+			`--news-source must be one of: ${NEWS_SOURCE_IDS.join(", ")} (got: ${newsSource})`,
+		);
+	}
+
+	if (newsSource !== "rss-feeds" && rssFeeds.length > 0) {
+		throw new Error(
+			`--rss can only be used with --news-source rss-feeds (got: ${newsSource})`,
+		);
+	}
+
+	if (newsSource === "rss-feeds" && rssFeeds.length === 0) {
+		throw new Error(
+			`--news-source rss-feeds requires at least one --rss feed URL`,
+		);
+	}
+
 	return {
 		query: opts.query,
 		headlines: opts.headlines,
 		out: opts.out,
 		noImage: !opts.image,
 		upload: opts.upload,
+		newsSource,
+		rssFeeds,
 	};
 }
 
@@ -96,32 +173,45 @@ async function runCycle(cli: CliOptions, inkposterAuth: InkposterAuth | null) {
 	logStatus(`Cycle start (runId=${runId})`);
 	logStatus(`Preparing output dir: ${runDir}`);
 
+	const newsSourceConfig = {
+		id: cli.newsSource,
+		query: cli.query,
+		rssFeeds: cli.rssFeeds.length > 0 ? cli.rssFeeds : undefined,
+	};
+
 	const manifest: Record<string, unknown> = {
 		runId,
 		startedAt: startedAt.toISOString(),
 		query: cli.query,
 		requestedHeadlineCount: cli.headlines,
+		newsSource: {
+			id: cli.newsSource,
+			rssFeeds: cli.rssFeeds.length > 0 ? cli.rssFeeds : undefined,
+		},
 		models: {
-			headlines: `gateway:${HEADLINES_MODEL} (with openai.web_search)`,
+			headlines:
+				cli.newsSource === "chatgpt-web-search"
+					? `gateway:${HEADLINES_MODEL} (with openai.web_search)`
+					: "rss-feeds",
+			brief: `gateway:${HEADLINES_MODEL}`,
 			image: cli.noImage ? null : `gateway:${IMAGE_MODEL}`,
 		},
 	};
 
 	try {
 		logStatus(
-			`Headlines+prompt: starting (model=gateway:${HEADLINES_MODEL}, date=${dateLabel}, query=${JSON.stringify(cli.query)}, maxHeadlines=${cli.headlines})`,
+			`News: starting (source=${cli.newsSource}, date=${dateLabel}, query=${JSON.stringify(cli.query)}, maxHeadlines=${cli.headlines})`,
 		);
 		const news = await fetchDailyNews({
-			query: cli.query,
-			maxHeadlines: cli.headlines,
+			source: newsSourceConfig,
 			dateLabel,
+			maxHeadlines: cli.headlines,
 			reporter: { info: (m) => logStatus(m) },
 		});
-		logStatus(
-			`Headlines+prompt: received (${news.headlines.length} headlines)`,
-		);
+		logStatus(`News: received (${news.headlines.length} headlines)`);
 
 		manifest.news = news;
+		manifest.newsSource = news.source;
 
 		logStatus(`Writing summary + image prompt files...`);
 		await fs.promises.writeFile(
