@@ -56,7 +56,9 @@ export async function logLlmStream(
 				);
 				break;
 			case "finish":
-				report(`${prefix}: stream finish (finishReason=${String(part.finishReason)})`);
+				report(
+					`${prefix}: stream finish (finishReason=${String(part.finishReason)})`,
+				);
 				break;
 			default:
 				break;

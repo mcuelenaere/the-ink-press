@@ -1,8 +1,8 @@
 import { generateDailyBrief } from "./ai";
-import { getNewsSourceModule } from "./news-sources";
-import type { NewsSourceId } from "./news-sources";
-import type { NewsSourceResult } from "./news-sources/types";
 import type { NewsHeadline } from "./news/types";
+import type { NewsSourceId } from "./news-sources";
+import { getNewsSourceModule } from "./news-sources";
+import type { NewsSourceResult } from "./news-sources/types";
 import type { Reporter } from "./reporting";
 
 export type NewsSourceConfig = {
