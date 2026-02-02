@@ -1,7 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
-
-import { getReporter } from "../reporting";
 import type { NewsHeadline } from "../news/types";
+import { getReporter } from "../reporting";
 import type { NewsSourceModule, NewsSourceOptions } from "./types";
 
 type FeedItem = {
@@ -73,7 +72,8 @@ function parseDate(value: unknown): number | undefined {
 }
 
 function buildSourceLabel(feedTitle: string | null, feedUrl: string): string {
-	if (feedTitle && feedTitle.trim()) return feedTitle.trim();
+	const trimmedTitle = feedTitle?.trim();
+	if (trimmedTitle) return trimmedTitle;
 	try {
 		return new URL(feedUrl).hostname;
 	} catch {
@@ -81,7 +81,10 @@ function buildSourceLabel(feedTitle: string | null, feedUrl: string): string {
 	}
 }
 
-function collectRssItems(feedUrl: string, parsed: Record<string, unknown>): FeedItem[] {
+function collectRssItems(
+	feedUrl: string,
+	parsed: Record<string, unknown>,
+): FeedItem[] {
 	const rss = parsed.rss as Record<string, unknown> | undefined;
 	const channel = rss?.channel as Record<string, unknown> | undefined;
 	if (!channel) return [];
@@ -110,7 +113,10 @@ function collectRssItems(feedUrl: string, parsed: Record<string, unknown>): Feed
 		.filter((item): item is FeedItem => Boolean(item));
 }
 
-function collectAtomItems(feedUrl: string, parsed: Record<string, unknown>): FeedItem[] {
+function collectAtomItems(
+	feedUrl: string,
+	parsed: Record<string, unknown>,
+): FeedItem[] {
 	const feed = parsed.feed as Record<string, unknown> | undefined;
 	if (!feed) return [];
 
@@ -136,7 +142,10 @@ function collectAtomItems(feedUrl: string, parsed: Record<string, unknown>): Fee
 		.filter((item): item is FeedItem => Boolean(item));
 }
 
-function dedupeAndLimit(items: FeedItem[], maxHeadlines: number): NewsHeadline[] {
+function dedupeAndLimit(
+	items: FeedItem[],
+	maxHeadlines: number,
+): NewsHeadline[] {
 	const sorted = [...items].sort((a, b) => {
 		return (b.publishedAt ?? 0) - (a.publishedAt ?? 0);
 	});
@@ -196,8 +205,7 @@ export const rssFeedsModule: NewsSourceModule = {
 				allItems.push(...items);
 				report(`NEWS: RSS parsed ${items.length} items (${feedUrl})`);
 			} catch (error) {
-				const message =
-					error instanceof Error ? error.message : String(error);
+				const message = error instanceof Error ? error.message : String(error);
 				failures.push(`${feedUrl} (${message})`);
 				report(`NEWS: RSS failed ${feedUrl} (${message})`);
 			}
