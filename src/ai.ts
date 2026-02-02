@@ -1,77 +1,60 @@
-import { openai } from "@ai-sdk/openai";
-import { gateway, Output, stepCountIs, streamText, zodSchema } from "ai";
+import { gateway, Output, streamText, zodSchema } from "ai";
 import { z } from "zod";
 
-export type Reporter = {
-	info: (message: string) => void;
-};
+import { logLlmStream, toOneLineJson } from "./ai-utils";
+import type { NewsHeadline } from "./news/types";
+import { getReporter, type Reporter } from "./reporting";
 
-function toOneLineJson(value: unknown, maxLen = 240) {
-	try {
-		const s = JSON.stringify(value);
-		if (s.length <= maxLen) return s;
-		return `${s.slice(0, maxLen - 3)}...`;
-	} catch {
-		return "[unserializable]";
-	}
-}
-
-const NewsResultSchema = z.object({
-	dateLabel: z.string().min(1),
-	headlines: z
-		.array(
-			z.object({
-				title: z.string().min(1),
-				url: z.string().min(1),
-				source: z.string().min(1),
-			}),
-		)
-		.min(1),
+const DailyBriefSchema = z.object({
 	summary: z.string().min(1),
 	concepts: z.array(z.string().min(1)).min(1).max(3),
 	captionText: z.string().min(1),
 	imagePrompt: z.string().min(1),
 });
 
-export type NewsResult = z.infer<typeof NewsResultSchema>;
+export type DailyBrief = z.infer<typeof DailyBriefSchema>;
 
-export async function fetchDailyNews(options: {
-	query: string;
-	maxHeadlines: number;
+function formatHeadlines(headlines: NewsHeadline[]) {
+	return headlines
+		.map((headline, index) => {
+			return `${index + 1}. ${headline.title} (${headline.source}) - ${headline.url}`;
+		})
+		.join("\n");
+}
+
+export async function generateDailyBrief(options: {
+	headlines: NewsHeadline[];
 	dateLabel: string;
 	reporter?: Reporter;
-}): Promise<NewsResult> {
-	const { query, maxHeadlines, dateLabel, reporter } = options;
-	const report = reporter?.info ?? (() => {});
-	const startedAt = Date.now();
-	let step = 0;
+}): Promise<DailyBrief> {
+	const { headlines, dateLabel, reporter } = options;
 
-	report(`LLM: streaming start (model=gateway:openai/gpt-5.2)`);
+	if (headlines.length === 0) {
+		throw new Error("Daily brief requires at least one headline.");
+	}
+
+	const report = getReporter(reporter);
+	const startedAt = Date.now();
+
+	report(`BRIEF: streaming start (model=gateway:openai/gpt-5.2)`);
 	const result = await streamText({
 		model: gateway("openai/gpt-5.2"),
-		toolChoice: "required",
-		stopWhen: stepCountIs(5),
-		tools: {
-			web_search: openai.tools.webSearchPreview({ searchContextSize: "high" }),
-		},
 		output: Output.object({
-			schema: zodSchema(NewsResultSchema),
+			schema: zodSchema(DailyBriefSchema),
 			name: "DailyBrief",
 			description:
-				"Headlines, summary, up to 3 visual concepts, caption text, and a painting-style image prompt for today.",
+				"Summary, up to 3 visual concepts, caption text, and a painting-style image prompt for today.",
 		}),
 		prompt: [
 			`You are generating a daily brief and an image prompt.`,
 			``,
 			`Today is: ${dateLabel}`,
 			``,
-			`Task: Use web search to find today's most important headlines for this query:`,
-			`${query}`,
+			`Headlines:`,
+			formatHeadlines(headlines),
 			``,
 			`Rules:`,
-			`- Use the web_search tool to gather sources (dedupe and prefer reputable outlets).`,
-			`- Return at most ${maxHeadlines} headlines.`,
-			`- Each headline MUST include a title, a canonical URL, and a short source name.`,
+			`- Use ONLY the provided headlines; do not add new stories.`,
 			`- Write a concise summary (5-8 sentences).`,
 			`- Choose 1-3 short 'concepts' that best represent the day. This is the MAX number of concepts allowed in the image.`,
 			`- The image MUST ONLY depict those concepts (no more than 3).`,
@@ -87,47 +70,10 @@ export async function fetchDailyNews(options: {
 		].join("\n"),
 	});
 
-	for await (const part of result.fullStream) {
-		// We intentionally log only high-signal events.
-		switch (part.type) {
-			case "start-step":
-				step += 1;
-				report(`LLM: step ${step} start`);
-				break;
-			case "tool-call":
-				report(
-					`LLM: toolCall ${part.toolName} input=${toOneLineJson(part.input)}`,
-				);
-				break;
-			case "tool-input-delta":
-				if (part.delta.trim()) {
-					report(`LLM: toolInputΔ=${toOneLineJson(part.delta, 160)}`);
-				}
-				break;
-			case "tool-result":
-				report(
-					`LLM: toolResult ${part.toolName} preliminary=${Boolean(part.preliminary)} output=${toOneLineJson(part.output, 200)}`,
-				);
-				break;
-			case "reasoning-delta":
-				// Keep reasoning updates short; they can be very chatty.
-				if (part.text.trim()) {
-					report(`LLM: reasoningΔ=${toOneLineJson(part.text, 160)}`);
-				}
-				break;
-			case "finish-step":
-				report(`LLM: step ${step} finish (finishReason=${part.finishReason})`);
-				break;
-			case "finish":
-				report(`LLM: stream finish (finishReason=${part.finishReason})`);
-				break;
-			default:
-				break;
-		}
-	}
+	await logLlmStream(report, result.fullStream, "BRIEF");
 
 	const out = await result.output;
-	report(`LLM: done (ms=${Date.now() - startedAt})`);
+	report(`BRIEF: done (ms=${Date.now() - startedAt})`);
 	return out;
 }
 
