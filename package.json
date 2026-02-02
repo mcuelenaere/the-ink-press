@@ -17,9 +17,10 @@
 	},
 	"dependencies": {
 		"@ai-sdk/openai": "^3.0.23",
+		"@napi-rs/image": "^1.12.0",
 		"ai": "^6.0.64",
 		"commander": "^14.0.3",
-		"@napi-rs/image": "^1.12.0",
+		"fast-xml-parser": "^5.3.4",
 		"zod": "^4.3.6"
 	},
 	"devDependencies": {
