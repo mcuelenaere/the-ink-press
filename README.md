@@ -51,6 +51,16 @@ npm run dev -- --interval-hours 6
 npm run dev -- --once --upload  # Generate and upload to Inkposter
 ```
 
+## News sources
+
+By default, headlines are gathered using ChatGPT web search. You can switch to
+RSS feeds by providing one or more feed URLs:
+
+```bash
+npm run dev -- --once --news-source rss-feeds --rss https://example.com/rss
+npm run dev -- --once --news-source rss-feeds --rss https://a.com/rss,https://b.com/rss
+```
+
 ## Output
 
 Each run writes to `./out/<timestamp>/`:
