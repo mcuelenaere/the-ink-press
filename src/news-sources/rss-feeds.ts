@@ -105,9 +105,7 @@ function collectRssItems(
 				parseDate(record["dc:date"]) ??
 				parseDate(record["atom:updated"]);
 			const base: FeedItem = { title, url, source: sourceLabel };
-			return publishedAt !== undefined
-				? { ...base, publishedAt }
-				: base;
+			return publishedAt !== undefined ? { ...base, publishedAt } : base;
 		})
 		.filter((item): item is FeedItem => Boolean(item));
 }
@@ -133,9 +131,7 @@ function collectAtomItems(
 			const publishedAt =
 				parseDate(record.updated) ?? parseDate(record.published) ?? undefined;
 			const base: FeedItem = { title, url, source: sourceLabel };
-			return publishedAt !== undefined
-				? { ...base, publishedAt }
-				: base;
+			return publishedAt !== undefined ? { ...base, publishedAt } : base;
 		})
 		.filter((item): item is FeedItem => Boolean(item));
 }
