@@ -100,15 +100,14 @@ function collectRssItems(
 			const title = extractText(record.title);
 			const url = extractText(record.link) ?? extractText(record.guid);
 			if (!title || !url) return null;
-			return {
-				title,
-				url,
-				source: sourceLabel,
-				publishedAt:
-					parseDate(record.pubDate) ??
-					parseDate(record["dc:date"]) ??
-					parseDate(record["atom:updated"]),
-			} satisfies FeedItem;
+			const publishedAt =
+				parseDate(record.pubDate) ??
+				parseDate(record["dc:date"]) ??
+				parseDate(record["atom:updated"]);
+			const base: FeedItem = { title, url, source: sourceLabel };
+			return publishedAt !== undefined
+				? { ...base, publishedAt }
+				: base;
 		})
 		.filter((item): item is FeedItem => Boolean(item));
 }
@@ -131,13 +130,12 @@ function collectAtomItems(
 			const title = extractText(record.title);
 			const url = extractAtomLink(record.link);
 			if (!title || !url) return null;
-			return {
-				title,
-				url,
-				source: sourceLabel,
-				publishedAt:
-					parseDate(record.updated) ?? parseDate(record.published) ?? undefined,
-			} satisfies FeedItem;
+			const publishedAt =
+				parseDate(record.updated) ?? parseDate(record.published) ?? undefined;
+			const base: FeedItem = { title, url, source: sourceLabel };
+			return publishedAt !== undefined
+				? { ...base, publishedAt }
+				: base;
 		})
 		.filter((item): item is FeedItem => Boolean(item));
 }
