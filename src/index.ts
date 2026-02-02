@@ -5,8 +5,8 @@ import { Command } from "commander";
 import { generateGeminiImage } from "./ai";
 import { getInkposterConfig, uploadAndPoll } from "./inkposter";
 import { fetchDailyNews } from "./news";
-import { NEWS_SOURCE_IDS, isNewsSourceId } from "./news-sources";
 import type { NewsSourceId } from "./news-sources";
+import { isNewsSourceId, NEWS_SOURCE_IDS } from "./news-sources";
 import {
 	fileExtensionFromMediaType,
 	getRequiredEnv,
@@ -53,9 +53,7 @@ function normalizeRssFeeds(values: string[]): string[] {
 			throw new Error(`Invalid RSS feed URL: ${trimmed}`);
 		}
 		if (url.protocol !== "http:" && url.protocol !== "https:") {
-			throw new Error(
-				`RSS feed URL must be http or https: ${url.toString()}`,
-			);
+			throw new Error(`RSS feed URL must be http or https: ${url.toString()}`);
 		}
 		const normalized = url.toString();
 		if (!unique.has(normalized)) {
