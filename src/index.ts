@@ -19,8 +19,6 @@ import {
 } from "./utils";
 
 type CliOptions = {
-	once: boolean;
-	intervalHours: number;
 	query: string;
 	headlines: number;
 	out: string;
@@ -35,13 +33,6 @@ function parseCliArgs(argv: string[]): CliOptions {
 		.name("the-ink-press")
 		.description(
 			"Daily news -> summary -> image prompt -> generated image (CLI).",
-		)
-		.option("--once", "Run a single cycle and exit", false)
-		.option(
-			"--interval-hours <n>",
-			"Loop interval in hours",
-			(v) => Number(v),
-			24,
 		)
 		.option(
 			"--query <string>",
@@ -60,12 +51,6 @@ function parseCliArgs(argv: string[]): CliOptions {
 		.parse(argv);
 
 	const opts = program.opts<CliOptions>();
-
-	if (!Number.isFinite(opts.intervalHours) || opts.intervalHours <= 0) {
-		throw new Error(
-			`--interval-hours must be a positive number (got: ${String(opts.intervalHours)})`,
-		);
-	}
 
 	if (
 		!Number.isInteger(opts.headlines) ||
@@ -177,29 +162,67 @@ async function runCycle(cli: CliOptions, inkposterAuth: InkposterAuth | null) {
 				// Upload to Inkposter if requested
 				if (cli.upload && inkposterAuth) {
 					logStatus(`Inkposter upload: starting`);
-					const uploadResult = await uploadAndPoll(
-						inkposterAuth,
-						imageResult.image.file,
-					);
-					manifest.inkposter = {
-						uploaded: true,
-						queueId: uploadResult.convertResponse.queueId,
-						resize: {
-							originalSize: `${uploadResult.resize.originalWidth}x${uploadResult.resize.originalHeight}`,
-							targetSize: `${uploadResult.resize.targetWidth}x${uploadResult.resize.targetHeight}`,
-							frameModel: inkposterAuth.config.frameModel,
-						},
-						poll: {
-							attempts: uploadResult.poll.attempts,
-							elapsedMs: uploadResult.poll.elapsedMs,
-							finalStatus: uploadResult.poll.finalResponse.status,
-							finalMessage: uploadResult.poll.finalResponse.message ?? null,
-							finalItem: uploadResult.poll.finalResponse.item ?? null,
-						},
-					};
-					logStatus(
-						`Inkposter upload: complete (status=${uploadResult.poll.finalResponse.status})`,
-					);
+					const maxRetries = 5;
+					let lastError: unknown;
+					for (let attempt = 1; attempt <= maxRetries; attempt++) {
+						try {
+							const uploadResult = await uploadAndPoll(
+								inkposterAuth,
+								imageResult.image.file,
+							);
+							manifest.inkposter = {
+								uploaded: true,
+								queueId: uploadResult.convertResponse.queueId,
+								resize: {
+									originalSize: `${uploadResult.resize.originalWidth}x${uploadResult.resize.originalHeight}`,
+									targetSize: `${uploadResult.resize.targetWidth}x${uploadResult.resize.targetHeight}`,
+									frameModel: inkposterAuth.config.frameModel,
+								},
+								poll: {
+									attempts: uploadResult.poll.attempts,
+									elapsedMs: uploadResult.poll.elapsedMs,
+									finalStatus: uploadResult.poll.finalResponse.status,
+									finalMessage:
+										uploadResult.poll.finalResponse.message ?? null,
+									finalItem:
+										uploadResult.poll.finalResponse.item ?? null,
+								},
+							};
+							logStatus(
+								`Inkposter upload: complete (status=${uploadResult.poll.finalResponse.status})`,
+							);
+							lastError = undefined;
+							break;
+						} catch (err) {
+							lastError = err;
+							logStatus(
+								`Inkposter upload: attempt ${attempt}/${maxRetries} failed: ${err instanceof Error ? err.message : String(err)}`,
+							);
+							if (attempt < maxRetries) {
+								const retryDelaySec = 30;
+								logStatus(
+									`Inkposter upload: retrying in ${retryDelaySec}s...`,
+								);
+								await sleep(retryDelaySec * 1000);
+							}
+						}
+					}
+					if (lastError) {
+						logStatus(
+							`Inkposter upload: giving up after ${maxRetries} attempts`,
+						);
+						manifest.inkposter = {
+							uploaded: false,
+							error:
+								lastError instanceof Error
+									? {
+											message: lastError.message,
+											stack: lastError.stack,
+										}
+									: { message: String(lastError) },
+							attempts: maxRetries,
+						};
+					}
 				}
 			} else {
 				logStatus(
@@ -248,31 +271,10 @@ async function main() {
 
 	// eslint-disable-next-line no-console
 	console.log(
-		`the-ink-press starting (once=${cli.once}, intervalHours=${cli.intervalHours}, headlines=${cli.headlines}, noImage=${cli.noImage}, upload=${cli.upload})`,
+		`the-ink-press starting (headlines=${cli.headlines}, noImage=${cli.noImage}, upload=${cli.upload})`,
 	);
 
-	while (true) {
-		try {
-			await runCycle(cli, inkposterAuth);
-		} catch (err) {
-			// eslint-disable-next-line no-console
-			console.error(err);
-			const backoffMs = 10 * 60 * 1000;
-			// eslint-disable-next-line no-console
-			console.log(
-				`Error cycle; retrying in ${Math.round(backoffMs / 60000)} minutes...`,
-			);
-			await sleep(backoffMs);
-			continue;
-		}
-
-		if (cli.once) return;
-
-		const sleepMs = cli.intervalHours * 60 * 60 * 1000;
-		// eslint-disable-next-line no-console
-		console.log(`Sleeping for ${cli.intervalHours} hours...`);
-		await sleep(sleepMs);
-	}
+	await runCycle(cli, inkposterAuth);
 }
 
 main().catch((err) => {
