@@ -44,19 +44,21 @@ bun run dev
 ## Useful flags
 
 ```bash
-bun run dev -- --query "top tech news today" --headlines 8
+bun run dev -- --query "top tech news today; emphasize AI + policy" --headlines 8
 bun run dev -- --no-image
 bun run dev -- --upload  # Generate and upload to Inkposter
 ```
 
-## News sources
+The `--query` value is used both to guide web search and to shape the summary.
 
-By default, headlines are gathered using ChatGPT web search. You can switch to
-RSS feeds by providing one or more feed URLs:
+## RSS feeds (optional)
+
+By default, headlines are gathered using ChatGPT web search. You can add RSS
+feeds as extra context by providing one or more feed URLs:
 
 ```bash
-bun run dev -- --news-source rss-feeds --rss https://example.com/rss
-bun run dev -- --news-source rss-feeds --rss https://a.com/rss,https://b.com/rss
+bun run dev -- --rss https://example.com/rss
+bun run dev -- --rss https://a.com/rss,https://b.com/rss
 ```
 
 ## Output

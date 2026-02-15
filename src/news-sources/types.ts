@@ -4,7 +4,7 @@ import type { Reporter } from "../reporting";
 export type NewsSourceId = "chatgpt-web-search" | "rss-feeds";
 
 export type NewsSourceOptions = {
-	query: string;
+	prompt: string;
 	dateLabel: string;
 	maxHeadlines: number;
 	rssFeeds?: string[];
