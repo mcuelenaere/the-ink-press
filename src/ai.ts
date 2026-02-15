@@ -22,14 +22,23 @@ function formatHeadlines(headlines: NewsHeadline[]) {
 		.join("\n");
 }
 
+function formatHeadlinesSection(label: string, headlines: NewsHeadline[]) {
+	if (headlines.length === 0) {
+		return `${label}: (none)`;
+	}
+	return `${label}:\n${formatHeadlines(headlines)}`;
+}
+
 export async function generateDailyBrief(options: {
-	headlines: NewsHeadline[];
+	prompt: string;
+	webHeadlines: NewsHeadline[];
+	rssHeadlines?: NewsHeadline[];
 	dateLabel: string;
 	reporter?: Reporter;
 }): Promise<DailyBrief> {
-	const { headlines, dateLabel, reporter } = options;
+	const { prompt, webHeadlines, rssHeadlines = [], dateLabel, reporter } = options;
 
-	if (headlines.length === 0) {
+	if (webHeadlines.length === 0 && rssHeadlines.length === 0) {
 		throw new Error("Daily brief requires at least one headline.");
 	}
 
@@ -50,11 +59,18 @@ export async function generateDailyBrief(options: {
 			``,
 			`Today is: ${dateLabel}`,
 			``,
-			`Headlines:`,
-			formatHeadlines(headlines),
+			`User prompt:`,
+			prompt,
+			``,
+			formatHeadlinesSection("Web search headlines", webHeadlines),
+			rssHeadlines.length > 0
+				? formatHeadlinesSection("RSS feed headlines", rssHeadlines)
+				: "",
 			``,
 			`Rules:`,
 			`- Use ONLY the provided headlines; do not add new stories.`,
+			`- Use BOTH the web search and RSS headlines if provided.`,
+			`- Use the user prompt to decide what to emphasize.`,
 			`- Write a concise summary (5-8 sentences).`,
 			`- Choose 1-3 short 'concepts' that best represent the day. This is the MAX number of concepts allowed in the image.`,
 			`- The image MUST ONLY depict those concepts (no more than 3).`,

@@ -45,20 +45,22 @@ npm run dev
 ## Useful flags
 
 ```bash
-npm run dev -- --once --query "top tech news today" --headlines 8
+npm run dev -- --once --query "top tech news today; emphasize AI + policy" --headlines 8
 npm run dev -- --once --no-image
 npm run dev -- --interval-hours 6
 npm run dev -- --once --upload  # Generate and upload to Inkposter
 ```
 
-## News sources
+The `--query` value is used both to guide web search and to shape the summary.
 
-By default, headlines are gathered using ChatGPT web search. You can switch to
-RSS feeds by providing one or more feed URLs:
+## RSS feeds (optional)
+
+By default, headlines are gathered using ChatGPT web search. You can add RSS
+feeds as extra context by providing one or more feed URLs:
 
 ```bash
-npm run dev -- --once --news-source rss-feeds --rss https://example.com/rss
-npm run dev -- --once --news-source rss-feeds --rss https://a.com/rss,https://b.com/rss
+npm run dev -- --once --rss https://example.com/rss
+npm run dev -- --once --rss https://a.com/rss,https://b.com/rss
 ```
 
 ## Output

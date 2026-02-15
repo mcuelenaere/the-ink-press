@@ -1,27 +1,35 @@
 import { generateDailyBrief } from "./ai";
 import type { NewsHeadline } from "./news/types";
-import type { NewsSourceId } from "./news-sources";
 import { getNewsSourceModule } from "./news-sources";
-import type { NewsSourceResult } from "./news-sources/types";
+import type { NewsSourceId, NewsSourceResult } from "./news-sources/types";
 import type { Reporter } from "./reporting";
 
 export type NewsSourceConfig = {
-	id: NewsSourceId;
-	query: string;
+	prompt: string;
 	rssFeeds?: string[];
 };
 
 export type NewsResult = {
 	dateLabel: string;
+	prompt: string;
 	headlines: NewsHeadline[];
+	webHeadlines: NewsHeadline[];
+	rssHeadlines: NewsHeadline[];
 	summary: string;
 	concepts: string[];
 	captionText: string;
 	imagePrompt: string;
-	source: {
-		id: NewsSourceId;
-		label: string;
-		meta?: NewsSourceResult["meta"];
+	sources: {
+		webSearch: {
+			id: NewsSourceId;
+			label: string;
+			meta?: NewsSourceResult["meta"];
+		};
+		rssFeeds?: {
+			id: NewsSourceId;
+			label: string;
+			meta?: NewsSourceResult["meta"];
+		};
 	};
 };
 
@@ -32,34 +40,85 @@ export async function fetchDailyNews(options: {
 	reporter?: Reporter;
 }): Promise<NewsResult> {
 	const { source, maxHeadlines, dateLabel, reporter } = options;
-	const module = getNewsSourceModule(source.id);
+	const webSearchModule = getNewsSourceModule("chatgpt-web-search");
+	const rssFeedsModule = getNewsSourceModule("rss-feeds");
 
-	const sourceResult = await module.fetchHeadlines({
-		query: source.query,
-		dateLabel,
-		maxHeadlines,
-		rssFeeds: source.rssFeeds,
-		reporter,
-	});
+	const rssFeeds = source.rssFeeds?.length ? source.rssFeeds : undefined;
 
-	if (sourceResult.headlines.length === 0) {
-		throw new Error(`News source "${module.id}" returned no headlines.`);
+	const [webSearchResult, rssResult] = await Promise.all([
+		webSearchModule.fetchHeadlines({
+			prompt: source.prompt,
+			dateLabel,
+			maxHeadlines,
+			reporter,
+		}),
+		rssFeeds
+			? rssFeedsModule.fetchHeadlines({
+					prompt: source.prompt,
+					dateLabel,
+					maxHeadlines,
+					rssFeeds,
+					reporter,
+				})
+			: Promise.resolve(null),
+	]);
+
+	const webHeadlines = webSearchResult.headlines;
+	const rssHeadlines = rssResult?.headlines ?? [];
+
+	const headlines = dedupeHeadlines(webHeadlines, rssHeadlines);
+
+	if (headlines.length === 0) {
+		throw new Error("No headlines were returned from web search or RSS feeds.");
 	}
 
 	const brief = await generateDailyBrief({
-		headlines: sourceResult.headlines,
+		prompt: source.prompt,
+		webHeadlines,
+		rssHeadlines,
 		dateLabel,
 		reporter,
 	});
 
 	return {
 		dateLabel,
-		headlines: sourceResult.headlines,
+		prompt: source.prompt,
+		headlines,
+		webHeadlines,
+		rssHeadlines,
 		...brief,
-		source: {
-			id: module.id,
-			label: module.displayName,
-			meta: sourceResult.meta,
+		sources: {
+			webSearch: {
+				id: webSearchModule.id,
+				label: webSearchModule.displayName,
+				meta: webSearchResult.meta,
+			},
+			rssFeeds: rssResult
+				? {
+						id: rssFeedsModule.id,
+						label: rssFeedsModule.displayName,
+						meta: rssResult.meta,
+					}
+				: undefined,
 		},
 	};
+}
+
+function dedupeHeadlines(
+	...groups: Array<NewsHeadline[] | undefined>
+): NewsHeadline[] {
+	const seen = new Set<string>();
+	const combined: NewsHeadline[] = [];
+
+	for (const group of groups) {
+		if (!group) continue;
+		for (const headline of group) {
+			const url = headline.url.trim();
+			if (!url || seen.has(url)) continue;
+			seen.add(url);
+			combined.push(headline);
+		}
+	}
+
+	return combined;
 }

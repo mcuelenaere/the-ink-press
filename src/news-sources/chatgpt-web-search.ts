@@ -16,10 +16,10 @@ export const chatgptWebSearchModule: NewsSourceModule = {
 	id: "chatgpt-web-search",
 	displayName: "ChatGPT Web Search",
 	async fetchHeadlines(options: NewsSourceOptions) {
-		const { query, maxHeadlines, dateLabel, reporter } = options;
+		const { prompt, maxHeadlines, dateLabel, reporter } = options;
 
-		if (!query.trim()) {
-			throw new Error("ChatGPT web search requires a non-empty query.");
+		if (!prompt.trim()) {
+			throw new Error("ChatGPT web search requires a non-empty prompt.");
 		}
 
 		const report = getReporter(reporter);
@@ -49,8 +49,10 @@ export const chatgptWebSearchModule: NewsSourceModule = {
 				``,
 				`Today is: ${dateLabel}`,
 				``,
-				`Task: Use web search to find today's top headlines for this query:`,
-				`${query}`,
+				`User prompt:`,
+				prompt,
+				``,
+				`Task: Use web search to find today's top headlines that best address the user prompt.`,
 				``,
 				`Rules:`,
 				`- Use the web_search tool to gather sources (dedupe and prefer reputable outlets).`,
