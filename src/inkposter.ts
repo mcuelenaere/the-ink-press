@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
 import {
 	compressJpeg,
 	Orientation,
@@ -20,8 +22,8 @@ export type FrameResolution = {
 export type RotationAngle = 0 | 90 | 180 | 270;
 
 export type InkposterConfig = {
-	token: string;
-	deviceId: string;
+	email: string;
+	password: string;
 	frameUuid: string;
 	frameModel: FrameModel;
 	rotate: RotationAngle;
@@ -59,17 +61,34 @@ export type UploadResult = {
 	resize: ResizeResult;
 };
 
+type PersistedState = {
+	deviceId: string;
+	accessToken: string;
+	refreshToken: string;
+	expiresAt: number;
+};
+
+type AuthResponse = {
+	accessToken: string;
+	refreshToken: string;
+	expiresIn: number;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants (reverse-engineered defaults)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const API_BASE = "https://api.inkposter.com";
 
-const DEFAULT_HEADERS = {
+// Signing credentials (from Android APK, see reverse-engineer/API_AUTH.md)
+const CLIENT_ID = "android";
+const CLIENT_SECRET = "t5L1zS3D5CAZOE66afhWy8oPVEkZaB5p";
+
+const DEFAULT_HEADERS: Record<string, string> = {
 	"x-header-country": "BE",
 	"x-header-language": "en",
-	"x-client-id": "ios",
-	"x-header-clientid": "ios",
+	"x-client-id": CLIENT_ID,
+	"x-header-clientid": CLIENT_ID,
 };
 
 const CONVERT_EXTRA_HEADERS = {
@@ -80,6 +99,9 @@ const CONVERT_EXTRA_HEADERS = {
 // Polling defaults
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 120_000;
+
+// Refresh token 1 hour before expiry
+const REFRESH_BUFFER_SECS = 60 * 60;
 
 // Frame resolutions (from Inkposter product specs)
 const FRAME_RESOLUTIONS: Record<FrameModel, FrameResolution> = {
@@ -114,8 +136,8 @@ function parseRotation(value: string | undefined): RotationAngle {
 
 export function getInkposterConfig(): InkposterConfig {
 	return {
-		token: getRequiredEnv("INKPOSTER_TOKEN"),
-		deviceId: getRequiredEnv("INKPOSTER_DEVICE_ID"),
+		email: getRequiredEnv("INKPOSTER_EMAIL"),
+		password: getRequiredEnv("INKPOSTER_PASSWORD"),
 		frameUuid: getRequiredEnv("INKPOSTER_FRAME_UUID"),
 		frameModel: parseFrameModel(getRequiredEnv("INKPOSTER_FRAME_MODEL")),
 		rotate: parseRotation(process.env.INKPOSTER_ROTATE),
@@ -126,16 +148,307 @@ export function getFrameResolution(model: FrameModel): FrameResolution {
 	return FRAME_RESOLUTIONS[model];
 }
 
-function buildHeaders(
-	config: InkposterConfig,
-	extra: Record<string, string> = {},
-): Record<string, string> {
-	return {
-		...DEFAULT_HEADERS,
-		...extra,
-		Authorization: `Bearer ${config.token}`,
-		"x-header-deviceid": config.deviceId,
-	};
+// ─────────────────────────────────────────────────────────────────────────────
+// Request signing (reverse-engineered from Android APK)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Compute the HMAC-SHA256 signature required by Inkposter auth endpoints.
+ *
+ *   message  = CLIENT_ID + timestamp
+ *   signature = HMAC-SHA256(CLIENT_SECRET, message)   → lowercase hex
+ */
+function computeAuthSignature(timestamp: number): string {
+	const message = `${CLIENT_ID}${timestamp}`;
+	return crypto
+		.createHmac("sha256", CLIENT_SECRET)
+		.update(message)
+		.digest("hex");
+}
+
+/** Append `?timestamp=…&signature=…` to a URL. */
+function signedUrl(baseUrl: string): string {
+	const timestamp = Date.now();
+	const signature = computeAuthSignature(timestamp);
+	return `${baseUrl}?timestamp=${timestamp}&signature=${signature}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Authentication
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DEFAULT_STATE_FILE = ".inkposter-tokens.json";
+
+function stateFilePath(): string {
+	return process.env.INKPOSTER_TOKEN_FILE ?? DEFAULT_STATE_FILE;
+}
+
+function loadPersistedState(): PersistedState | null {
+	try {
+		const raw = fs.readFileSync(stateFilePath(), "utf8");
+		const data: unknown = JSON.parse(raw);
+		if (
+			data !== null &&
+			typeof data === "object" &&
+			"deviceId" in data &&
+			"accessToken" in data &&
+			"refreshToken" in data &&
+			"expiresAt" in data &&
+			typeof (data as PersistedState).deviceId === "string" &&
+			typeof (data as PersistedState).accessToken === "string" &&
+			typeof (data as PersistedState).refreshToken === "string" &&
+			typeof (data as PersistedState).expiresAt === "number"
+		) {
+			return data as PersistedState;
+		}
+	} catch {
+		// File missing or corrupt — will login fresh.
+	}
+	return null;
+}
+
+function savePersistedState(state: PersistedState): void {
+	try {
+		fs.writeFileSync(
+			stateFilePath(),
+			`${JSON.stringify(state, null, 2)}\n`,
+			"utf8",
+		);
+		logStatus(`INKPOSTER: persisted auth state to ${stateFilePath()}`);
+	} catch (err) {
+		logStatus(
+			`INKPOSTER: warning: could not persist state to ${stateFilePath()}: ${err}`,
+		);
+	}
+}
+
+/**
+ * Manages the full Inkposter OAuth lifecycle:
+ *
+ *  1. **Login** with email + password (signed request).
+ *  2. **Proactive refresh** before token expiry.
+ *  3. **Reactive refresh** on 401, with re-login as fallback.
+ *  4. **Persistence** of device ID + tokens to a JSON file so they survive
+ *     process restarts.
+ *
+ * Use `InkposterAuth.create(config)` to obtain an authenticated instance.
+ */
+export class InkposterAuth {
+	readonly config: InkposterConfig;
+	private deviceId: string;
+	private accessToken: string;
+	private refreshToken: string;
+	private expiresAt: number;
+	private refreshPromise: Promise<void> | null = null;
+
+	private constructor(
+		config: InkposterConfig,
+		deviceId: string,
+		accessToken: string,
+		refreshToken: string,
+		expiresAt: number,
+	) {
+		this.config = config;
+		this.deviceId = deviceId;
+		this.accessToken = accessToken;
+		this.refreshToken = refreshToken;
+		this.expiresAt = expiresAt;
+	}
+
+	/**
+	 * Create an authenticated `InkposterAuth`.
+	 *
+	 * Loads persisted state when available and still valid, otherwise performs
+	 * a fresh login. Proactively refreshes tokens that are close to expiry.
+	 */
+	static async create(config: InkposterConfig): Promise<InkposterAuth> {
+		const saved = loadPersistedState();
+		const nowSecs = Date.now() / 1000;
+
+		if (saved && saved.expiresAt > nowSecs) {
+			logStatus(
+				`INKPOSTER: loaded persisted auth (expires ${new Date(saved.expiresAt * 1000).toISOString()})`,
+			);
+			const auth = new InkposterAuth(
+				config,
+				saved.deviceId,
+				saved.accessToken,
+				saved.refreshToken,
+				saved.expiresAt,
+			);
+
+			if (auth.isTokenExpiringSoon()) {
+				logStatus("INKPOSTER: token expiring soon, proactively refreshing…");
+				try {
+					await auth.doRefreshOrLogin();
+				} catch (err) {
+					logStatus(
+						`INKPOSTER: proactive refresh failed (${err}), logging in fresh`,
+					);
+					await auth.doLogin();
+				}
+			}
+
+			return auth;
+		}
+
+		// No valid persisted state — login fresh.
+		const deviceId = saved?.deviceId ?? crypto.randomUUID();
+		logStatus(`INKPOSTER: no valid persisted auth, logging in (device=${deviceId})`);
+		const auth = new InkposterAuth(config, deviceId, "", "", 0);
+		await auth.doLogin();
+		return auth;
+	}
+
+	// -- public API ------------------------------------------------------------
+
+	/** Build request headers using the current access token. */
+	buildHeaders(extra: Record<string, string> = {}): Record<string, string> {
+		return {
+			...DEFAULT_HEADERS,
+			...extra,
+			Authorization: `Bearer ${this.accessToken}`,
+			"x-header-deviceid": this.deviceId,
+		};
+	}
+
+	/**
+	 * Perform a `fetch` with automatic token management:
+	 *
+	 *  - Proactively refreshes if the token is close to expiry.
+	 *  - On 401: refreshes, or re-logs in if refresh fails, then retries.
+	 *
+	 * `buildInit` is a callback so that headers can be rebuilt with the fresh
+	 * token on the retry attempt.
+	 */
+	async fetchWithAuth(
+		url: string,
+		buildInit: () => RequestInit,
+	): Promise<Response> {
+		// Proactive refresh before the request if we're close to expiry
+		if (this.isTokenExpiringSoon()) {
+			logStatus("INKPOSTER: token expiring soon, refreshing before request…");
+			await this.ensureValidToken();
+		}
+
+		let res = await fetch(url, buildInit());
+
+		if (res.status === 401) {
+			logStatus(
+				`INKPOSTER: received 401 from ${new URL(url).pathname}, refreshing…`,
+			);
+			await this.ensureValidToken();
+			logStatus("INKPOSTER: retrying request with fresh token…");
+			res = await fetch(url, buildInit());
+		}
+
+		return res;
+	}
+
+	// -- internals -------------------------------------------------------------
+
+	private isTokenExpiringSoon(): boolean {
+		return Date.now() / 1000 >= this.expiresAt - REFRESH_BUFFER_SECS;
+	}
+
+	/**
+	 * Ensure we have a valid token. Try refresh first; fall back to re-login.
+	 * Concurrent calls are coalesced.
+	 */
+	private async ensureValidToken(): Promise<void> {
+		if (!this.refreshPromise) {
+			this.refreshPromise = this.doRefreshOrLogin().finally(() => {
+				this.refreshPromise = null;
+			});
+		}
+		return this.refreshPromise;
+	}
+
+	private async doRefreshOrLogin(): Promise<void> {
+		try {
+			await this.doRefresh();
+		} catch (err) {
+			logStatus(
+				`INKPOSTER: refresh failed (${err}), falling back to login…`,
+			);
+			await this.doLogin();
+		}
+	}
+
+	private async doLogin(): Promise<void> {
+		logStatus("INKPOSTER: logging in…");
+
+		const url = signedUrl(`${API_BASE}/api/v1/auth/login`);
+		const res = await fetch(url, {
+			method: "POST",
+			headers: {
+				...DEFAULT_HEADERS,
+				"Content-Type": "application/json",
+				"x-header-deviceid": this.deviceId,
+			},
+			body: JSON.stringify({
+				email: this.config.email,
+				password: this.config.password,
+				deviceId: this.deviceId,
+			}),
+		});
+
+		if (!res.ok) {
+			const text = await res.text().catch(() => "");
+			throw new Error(
+				`Inkposter login failed: ${res.status} ${res.statusText} - ${text}`,
+			);
+		}
+
+		const json = (await res.json()) as AuthResponse;
+		this.applyAuthResponse(json);
+		logStatus(
+			`INKPOSTER: login successful (expires ${new Date(this.expiresAt * 1000).toISOString()})`,
+		);
+	}
+
+	private async doRefresh(): Promise<void> {
+		logStatus("INKPOSTER: refreshing access token…");
+
+		const url = `${API_BASE}/api/v1/auth/refresh-token`;
+		const res = await fetch(url, {
+			method: "POST",
+			headers: {
+				...DEFAULT_HEADERS,
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${this.accessToken}`,
+				"x-header-deviceid": this.deviceId,
+			},
+			body: JSON.stringify({ deviceId: this.deviceId }),
+		});
+
+		if (!res.ok) {
+			const text = await res.text().catch(() => "");
+			throw new Error(
+				`Inkposter refresh failed: ${res.status} ${res.statusText} - ${text}`,
+			);
+		}
+
+		const json = (await res.json()) as AuthResponse;
+		this.applyAuthResponse(json);
+		logStatus(
+			`INKPOSTER: token refreshed (expires ${new Date(this.expiresAt * 1000).toISOString()})`,
+		);
+	}
+
+	private applyAuthResponse(json: AuthResponse): void {
+		this.accessToken = json.accessToken;
+		this.refreshToken = json.refreshToken;
+		// expiresIn is a Unix timestamp (seconds), not a duration
+		this.expiresAt = json.expiresIn;
+
+		savePersistedState({
+			deviceId: this.deviceId,
+			accessToken: this.accessToken,
+			refreshToken: this.refreshToken,
+			expiresAt: this.expiresAt,
+		});
+	}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -249,7 +562,7 @@ export async function resizeImageForFrame(
  * - `file`: image bytes (Content-Type: image/jpeg or similar)
  */
 export async function uploadConvert(
-	config: InkposterConfig,
+	auth: InkposterAuth,
 	imageBytes: Uint8Array,
 	mediaType: string,
 ): Promise<ConvertResponse> {
@@ -260,24 +573,22 @@ export async function uploadConvert(
 
 	// frames[] part: the frame UUID as a simple text form field
 	// The Java code uses createFormData("frames[]", str) which is a plain text field
-	formData.append("frames[]", config.frameUuid);
+	formData.append("frames[]", auth.config.frameUuid);
 
 	// file part: the image bytes
 	const filename = filenameFromMediaType(mediaType);
 	const imageBlob = new Blob([imageBytes], { type: mediaType });
 	formData.append("file", imageBlob, filename);
 
-	const headers = buildHeaders(config, CONVERT_EXTRA_HEADERS);
-
 	logStatus(
 		`INKPOSTER: uploading image (${imageBytes.byteLength} bytes, ${mediaType}) to /api/v1/item/convert`,
 	);
 
-	const res = await fetch(url, {
+	const res = await auth.fetchWithAuth(url, () => ({
 		method: "POST",
-		headers,
+		headers: auth.buildHeaders(CONVERT_EXTRA_HEADERS),
 		body: formData,
-	});
+	}));
 
 	if (!res.ok) {
 		const text = await res.text().catch(() => "");
@@ -299,14 +610,10 @@ export async function uploadConvert(
  * Poll the is-converted endpoint until status is no longer "pending" or timeout.
  */
 export async function pollIsConverted(
-	config: InkposterConfig,
+	auth: InkposterAuth,
 	queueId: string,
 ): Promise<PollResult> {
 	const url = `${API_BASE}/api/v1/item/is-converted`;
-	const headers = {
-		...buildHeaders(config),
-		"Content-Type": "application/json",
-	};
 
 	const startedAt = Date.now();
 	let attempts = 0;
@@ -317,11 +624,14 @@ export async function pollIsConverted(
 	while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
 		attempts += 1;
 
-		const res = await fetch(url, {
+		const res = await auth.fetchWithAuth(url, () => ({
 			method: "POST",
-			headers,
+			headers: {
+				...auth.buildHeaders(),
+				"Content-Type": "application/json",
+			},
 			body: JSON.stringify({ queueId }),
-		});
+		}));
 
 		if (!res.ok) {
 			const text = await res.text().catch(() => "");
@@ -376,23 +686,23 @@ export async function pollIsConverted(
  * If INKPOSTER_ROTATE is set, the image is rotated by that amount (0, 90, 180, 270).
  */
 export async function uploadAndPoll(
-	config: InkposterConfig,
+	auth: InkposterAuth,
 	imageBytes: Uint8Array,
 ): Promise<UploadResult> {
 	// Resize image to match frame resolution (with optional rotation)
 	const resize = await resizeImageForFrame(
 		imageBytes,
-		config.frameModel,
-		config.rotate,
+		auth.config.frameModel,
+		auth.config.rotate,
 	);
 
 	// Upload resized image
 	const convertResponse = await uploadConvert(
-		config,
+		auth,
 		resize.resizedBytes,
 		resize.mediaType,
 	);
-	const poll = await pollIsConverted(config, convertResponse.queueId);
+	const poll = await pollIsConverted(auth, convertResponse.queueId);
 
 	return { convertResponse, poll, resize };
 }

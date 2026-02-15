@@ -3,7 +3,11 @@ import path from "node:path";
 import { Command } from "commander";
 
 import { fetchDailyNews, generateGeminiImage } from "./ai";
-import { getInkposterConfig, uploadAndPoll } from "./inkposter";
+import {
+	getInkposterConfig,
+	InkposterAuth,
+	uploadAndPoll,
+} from "./inkposter";
 import {
 	fileExtensionFromMediaType,
 	getRequiredEnv,
@@ -78,7 +82,7 @@ function parseCliArgs(argv: string[]): CliOptions {
 
 // AI calls live in src/ai.ts; helpers live in src/utils.ts.
 
-async function runCycle(cli: CliOptions) {
+async function runCycle(cli: CliOptions, inkposterAuth: InkposterAuth | null) {
 	const startedAt = new Date();
 	const dateLabel = new Intl.DateTimeFormat("en-US", {
 		year: "numeric",
@@ -171,11 +175,10 @@ async function runCycle(cli: CliOptions) {
 				};
 
 				// Upload to Inkposter if requested
-				if (cli.upload) {
+				if (cli.upload && inkposterAuth) {
 					logStatus(`Inkposter upload: starting`);
-					const inkposterConfig = getInkposterConfig();
 					const uploadResult = await uploadAndPoll(
-						inkposterConfig,
+						inkposterAuth,
 						imageResult.image.file,
 					);
 					manifest.inkposter = {
@@ -184,7 +187,7 @@ async function runCycle(cli: CliOptions) {
 						resize: {
 							originalSize: `${uploadResult.resize.originalWidth}x${uploadResult.resize.originalHeight}`,
 							targetSize: `${uploadResult.resize.targetWidth}x${uploadResult.resize.targetHeight}`,
-							frameModel: inkposterConfig.frameModel,
+							frameModel: inkposterAuth.config.frameModel,
 						},
 						poll: {
 							attempts: uploadResult.poll.attempts,
@@ -236,9 +239,11 @@ async function main() {
 	// Used for both the OpenAI+web_search step and the Gemini image generation step.
 	getRequiredEnv("AI_GATEWAY_API_KEY");
 
-	// Validate Inkposter env vars early if upload is enabled
+	// Create Inkposter auth once so refreshed tokens persist across cycles.
+	// This performs a login (or loads persisted tokens) on first run.
+	let inkposterAuth: InkposterAuth | null = null;
 	if (cli.upload) {
-		getInkposterConfig();
+		inkposterAuth = await InkposterAuth.create(getInkposterConfig());
 	}
 
 	// eslint-disable-next-line no-console
@@ -248,7 +253,7 @@ async function main() {
 
 	while (true) {
 		try {
-			await runCycle(cli);
+			await runCycle(cli, inkposterAuth);
 		} catch (err) {
 			// eslint-disable-next-line no-console
 			console.error(err);

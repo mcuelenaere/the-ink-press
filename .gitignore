@@ -3,3 +3,4 @@ dist/
 out/
 .env
 .idea/
+.inkposter-tokens.json
