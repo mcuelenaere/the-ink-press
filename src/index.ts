@@ -3,11 +3,7 @@ import path from "node:path";
 import { Command } from "commander";
 
 import { fetchDailyNews, generateGeminiImage } from "./ai";
-import {
-	getInkposterConfig,
-	InkposterAuth,
-	uploadAndPoll,
-} from "./inkposter";
+import { getInkposterConfig, InkposterAuth, uploadAndPoll } from "./inkposter";
 import {
 	fileExtensionFromMediaType,
 	getRequiredEnv,
@@ -182,10 +178,8 @@ async function runCycle(cli: CliOptions, inkposterAuth: InkposterAuth | null) {
 									attempts: uploadResult.poll.attempts,
 									elapsedMs: uploadResult.poll.elapsedMs,
 									finalStatus: uploadResult.poll.finalResponse.status,
-									finalMessage:
-										uploadResult.poll.finalResponse.message ?? null,
-									finalItem:
-										uploadResult.poll.finalResponse.item ?? null,
+									finalMessage: uploadResult.poll.finalResponse.message ?? null,
+									finalItem: uploadResult.poll.finalResponse.item ?? null,
 								},
 							};
 							logStatus(
@@ -200,9 +194,7 @@ async function runCycle(cli: CliOptions, inkposterAuth: InkposterAuth | null) {
 							);
 							if (attempt < maxRetries) {
 								const retryDelaySec = 30;
-								logStatus(
-									`Inkposter upload: retrying in ${retryDelaySec}s...`,
-								);
+								logStatus(`Inkposter upload: retrying in ${retryDelaySec}s...`);
 								await sleep(retryDelaySec * 1000);
 							}
 						}

@@ -294,7 +294,9 @@ export class InkposterAuth {
 
 		// No valid persisted state — login fresh.
 		const deviceId = saved?.deviceId ?? crypto.randomUUID();
-		logStatus(`INKPOSTER: no valid persisted auth, logging in (device=${deviceId})`);
+		logStatus(
+			`INKPOSTER: no valid persisted auth, logging in (device=${deviceId})`,
+		);
 		const auth = new InkposterAuth(config, deviceId, "", "", 0);
 		await auth.doLogin();
 		return auth;
@@ -368,9 +370,7 @@ export class InkposterAuth {
 		try {
 			await this.doRefresh();
 		} catch (err) {
-			logStatus(
-				`INKPOSTER: refresh failed (${err}), falling back to login…`,
-			);
+			logStatus(`INKPOSTER: refresh failed (${err}), falling back to login…`);
 			await this.doLogin();
 		}
 	}
