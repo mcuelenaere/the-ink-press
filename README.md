@@ -7,7 +7,7 @@ Daily news → summary → image prompt → generated image (CLI).
 - Install deps:
 
 ```bash
-npm install
+bun install
 ```
 
 - Configure env:
@@ -38,15 +38,15 @@ Then run with `--upload` to enable uploading after image generation.
 ## Run
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 ## Useful flags
 
 ```bash
-npm run dev -- --query "top tech news today" --headlines 8
-npm run dev -- --no-image
-npm run dev -- --upload  # Generate and upload to Inkposter
+bun run dev -- --query "top tech news today" --headlines 8
+bun run dev -- --no-image
+bun run dev -- --upload  # Generate and upload to Inkposter
 ```
 
 ## Output
