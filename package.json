@@ -16,8 +16,8 @@
 		"format": "biome check --write"
 	},
 	"dependencies": {
-		"@ai-sdk/openai": "^3.0.30",
-		"ai": "^6.0.94",
+		"@ai-sdk/openai": "^3.0.99",
+		"ai": "^6.0.264",
 		"commander": "^14.0.3",
 		"@napi-rs/image": "^1.12.0",
 		"zod": "^4.3.6"

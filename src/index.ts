@@ -2,7 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { Command } from "commander";
 
-import { fetchDailyNews, generateGeminiImage } from "./ai";
+import {
+	fetchDailyNews,
+	generateImage,
+	HEADLINES_MODEL,
+	IMAGE_MODEL,
+} from "./ai";
 import { getInkposterConfig, InkposterAuth, uploadAndPoll } from "./inkposter";
 import {
 	fileExtensionFromMediaType,
@@ -85,14 +90,14 @@ async function runCycle(cli: CliOptions, inkposterAuth: InkposterAuth | null) {
 		query: cli.query,
 		requestedHeadlineCount: cli.headlines,
 		models: {
-			headlines: "gateway:openai/gpt-5.2 (with openai.web_search_preview)",
-			image: cli.noImage ? null : "gateway:google/gemini-3-pro-image-preview",
+			headlines: `gateway:${HEADLINES_MODEL} (with openai.web_search)`,
+			image: cli.noImage ? null : `gateway:${IMAGE_MODEL}`,
 		},
 	};
 
 	try {
 		logStatus(
-			`Headlines+prompt: starting (model=gateway:openai/gpt-5.2, date=${dateLabel}, query=${JSON.stringify(cli.query)}, maxHeadlines=${cli.headlines})`,
+			`Headlines+prompt: starting (model=gateway:${HEADLINES_MODEL}, date=${dateLabel}, query=${JSON.stringify(cli.query)}, maxHeadlines=${cli.headlines})`,
 		);
 		const news = await fetchDailyNews({
 			query: cli.query,
@@ -129,10 +134,8 @@ async function runCycle(cli: CliOptions, inkposterAuth: InkposterAuth | null) {
 		);
 
 		if (!cli.noImage) {
-			logStatus(
-				`Image generation: starting (model=gateway:google/gemini-3-pro-image-preview)`,
-			);
-			const imageResult = await generateGeminiImage({
+			logStatus(`Image generation: starting (model=gateway:${IMAGE_MODEL})`);
+			const imageResult = await generateImage({
 				imagePrompt: news.imagePrompt,
 				captionText: news.captionText,
 				reporter: { info: (m) => logStatus(m) },
@@ -251,7 +254,7 @@ async function runCycle(cli: CliOptions, inkposterAuth: InkposterAuth | null) {
 
 async function main() {
 	const cli = parseCliArgs(process.argv);
-	// Used for both the OpenAI+web_search step and the Gemini image generation step.
+	// Used for both the OpenAI+web_search step and the Gemini image step.
 	getRequiredEnv("AI_GATEWAY_API_KEY");
 
 	// Create Inkposter auth once so refreshed tokens persist across cycles.

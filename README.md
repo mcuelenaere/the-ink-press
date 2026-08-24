@@ -17,7 +17,7 @@ cp .env.example .env
 ```
 
 Then set:
-- `AI_GATEWAY_API_KEY` (used for both the OpenAI+web_search headlines step and `google/gemini-3-pro-image-preview`)
+- `AI_GATEWAY_API_KEY` (used for both the OpenAI+web_search headlines step (`openai/gpt-5.6-sol`) and `google/gemini-3.1-flash-image`)
 
 ### Inkposter upload (optional)
 

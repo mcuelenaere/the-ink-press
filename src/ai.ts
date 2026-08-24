@@ -2,6 +2,9 @@ import { openai } from "@ai-sdk/openai";
 import { gateway, Output, stepCountIs, streamText, zodSchema } from "ai";
 import { z } from "zod";
 
+export const HEADLINES_MODEL = "openai/gpt-5.6-sol";
+export const IMAGE_MODEL = "google/gemini-3.1-flash-image";
+
 export type Reporter = {
 	info: (message: string) => void;
 };
@@ -46,13 +49,13 @@ export async function fetchDailyNews(options: {
 	const startedAt = Date.now();
 	let step = 0;
 
-	report(`LLM: streaming start (model=gateway:openai/gpt-5.2)`);
+	report(`LLM: streaming start (model=gateway:${HEADLINES_MODEL})`);
 	const result = await streamText({
-		model: gateway("openai/gpt-5.2"),
+		model: gateway(HEADLINES_MODEL),
 		toolChoice: "required",
 		stopWhen: stepCountIs(5),
 		tools: {
-			web_search: openai.tools.webSearchPreview({ searchContextSize: "high" }),
+			web_search: openai.tools.webSearch({ searchContextSize: "high" }),
 		},
 		output: Output.object({
 			schema: zodSchema(NewsResultSchema),
@@ -131,7 +134,7 @@ export async function fetchDailyNews(options: {
 	return out;
 }
 
-export async function generateGeminiImage(options: {
+export async function generateImage(options: {
 	imagePrompt: string;
 	captionText?: string;
 	reporter?: Reporter;
@@ -143,12 +146,16 @@ export async function generateGeminiImage(options: {
 	const report = reporter?.info ?? (() => {});
 	const startedAt = Date.now();
 
-	report(
-		`IMAGE: streaming start (model=gateway:google/gemini-3-pro-image-preview)`,
-	);
+	report(`IMAGE: streaming start (model=gateway:${IMAGE_MODEL})`);
 	const result = await streamText({
-		model: gateway("google/gemini-3-pro-image-preview"),
+		model: gateway(IMAGE_MODEL),
 		maxRetries: 2,
+		providerOptions: {
+			google: {
+				responseModalities: ["IMAGE"],
+				thinkingConfig: { thinkingLevel: "high" },
+			},
+		},
 		prompt: [
 			`Generate exactly one image based on this prompt.`,
 			`Do not return any additional text unless necessary.`,
