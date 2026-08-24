@@ -2,11 +2,21 @@ import { gateway, Output, streamText, zodSchema } from "ai";
 import { z } from "zod";
 
 import { logLlmStream, toOneLineJson } from "./ai-utils";
-import { GEMINI_HEADLINES_MODEL, HEADLINES_MODEL, IMAGE_MODEL } from "./models";
+import {
+	CHATGPT_HEADLINES_MODEL,
+	GEMINI_HEADLINES_MODEL,
+	HEADLINES_MODEL,
+	IMAGE_MODEL,
+} from "./models";
 import type { NewsHeadline } from "./news/types";
 import { getReporter, type Reporter } from "./reporting";
 
-export { GEMINI_HEADLINES_MODEL, HEADLINES_MODEL, IMAGE_MODEL };
+export {
+	CHATGPT_HEADLINES_MODEL,
+	GEMINI_HEADLINES_MODEL,
+	HEADLINES_MODEL,
+	IMAGE_MODEL,
+};
 
 const DailyBriefSchema = z.object({
 	summary: z.string().min(1),

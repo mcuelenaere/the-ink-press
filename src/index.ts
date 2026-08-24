@@ -3,6 +3,7 @@ import path from "node:path";
 import { Command } from "commander";
 
 import {
+	CHATGPT_HEADLINES_MODEL,
 	GEMINI_HEADLINES_MODEL,
 	generateImage,
 	HEADLINES_MODEL,
@@ -155,7 +156,7 @@ async function runCycle(cli: CliOptions, inkposterAuth: InkposterAuth | null) {
 		requestedHeadlineCount: cli.headlines,
 		rssFeeds: cli.rssFeeds.length > 0 ? cli.rssFeeds : undefined,
 		models: {
-			chatgptHeadlines: `gateway:${HEADLINES_MODEL} (with openai.web_search)`,
+			chatgptHeadlines: `gateway:${CHATGPT_HEADLINES_MODEL} (with openai.web_search)`,
 			geminiHeadlines: `gateway:${GEMINI_HEADLINES_MODEL} (with google.google_search)`,
 			brief: `gateway:${HEADLINES_MODEL}`,
 			image: cli.noImage ? null : `gateway:${IMAGE_MODEL}`,

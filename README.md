@@ -17,7 +17,7 @@ cp .env.example .env
 ```
 
 Then set:
-- `AI_GATEWAY_API_KEY` (used for ChatGPT web search (`openai/gpt-5.6-sol`), Gemini Google Search (`google/gemini-3.1-flash`), and `google/gemini-3.1-flash-image`)
+- `AI_GATEWAY_API_KEY` (used for ChatGPT web search (`openai/gpt-5.6-terra`), Gemini Google Search (`google/gemini-3.7-flash`), brief (`openai/gpt-5.6-sol`), and `google/gemini-3.1-flash-image`)
 
 ### Inkposter upload (optional)
 
