@@ -3,7 +3,7 @@ import { gateway, isStepCount, Output, streamText, zodSchema } from "ai";
 import { z } from "zod";
 
 import { logLlmStream } from "../ai-utils";
-import { CHATGPT_HEADLINES_MODEL } from "../models";
+import { CHATGPT_HEADLINES_MODEL, OPENAI_PROVIDER_OPTIONS } from "../models";
 import { getReporter } from "../reporting";
 import type { NewsSourceModule, NewsSourceOptions } from "./types";
 import { buildWebSearchPrompt, HeadlineSchema } from "./web-search-prompt";
@@ -28,6 +28,7 @@ export const chatgptWebSearchModule: NewsSourceModule = {
 		report(`NEWS: streaming start (model=gateway:${CHATGPT_HEADLINES_MODEL})`);
 		const result = await streamText({
 			model: gateway(CHATGPT_HEADLINES_MODEL),
+			providerOptions: OPENAI_PROVIDER_OPTIONS,
 			toolChoice: "required",
 			stopWhen: isStepCount(5),
 			tools: {
