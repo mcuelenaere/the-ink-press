@@ -8,8 +8,8 @@
 	},
 	"scripts": {
 		"dev": "bun run src/index.ts",
-		"build": "bun build src/index.ts --target=bun --outdir=dist --minify",
-		"compile": "bun build src/index.ts --compile --minify --outfile=dist/the-ink-press",
+		"build": "bun build src/index.ts --target=bun --outdir=dist --minify-whitespace --minify-syntax --sourcemap=linked",
+		"compile": "bun build src/index.ts --compile --minify-whitespace --minify-syntax --sourcemap=inline --outfile=dist/the-ink-press",
 		"start": "bun dist/index.js",
 		"typecheck": "tsc --noEmit",
 		"lint": "biome check",
