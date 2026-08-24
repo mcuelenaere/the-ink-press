@@ -1,5 +1,5 @@
 import { openai } from "@ai-sdk/openai";
-import { gateway, Output, stepCountIs, streamText, zodSchema } from "ai";
+import { gateway, isStepCount, Output, streamText, zodSchema } from "ai";
 import { z } from "zod";
 
 export const HEADLINES_MODEL = "openai/gpt-5.6-sol";
@@ -53,7 +53,7 @@ export async function fetchDailyNews(options: {
 	const result = await streamText({
 		model: gateway(HEADLINES_MODEL),
 		toolChoice: "required",
-		stopWhen: stepCountIs(5),
+		stopWhen: isStepCount(5),
 		tools: {
 			web_search: openai.tools.webSearch({ searchContextSize: "high" }),
 		},
@@ -90,7 +90,7 @@ export async function fetchDailyNews(options: {
 		].join("\n"),
 	});
 
-	for await (const part of result.fullStream) {
+	for await (const part of result.stream) {
 		// We intentionally log only high-signal events.
 		switch (part.type) {
 			case "start-step":
@@ -167,7 +167,7 @@ export async function generateImage(options: {
 		].join("\n"),
 	});
 
-	for await (const part of result.fullStream) {
+	for await (const part of result.stream) {
 		if (part.type === "finish") {
 			report(`IMAGE: stream finish (finishReason=${part.finishReason})`);
 		}
