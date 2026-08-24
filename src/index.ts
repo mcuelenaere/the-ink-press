@@ -47,11 +47,17 @@ function parseCliArgs(argv: string[]): CliOptions {
 			10,
 		)
 		.option("--out <path>", "Output directory", "./out")
-		.option("--no-image", "Skip image generation (debug)", false)
+		.option("--no-image", "Skip image generation (debug)")
 		.option("--upload", "Upload generated image to Inkposter", false)
 		.parse(argv);
 
-	const opts = program.opts<CliOptions>();
+	const opts = program.opts<{
+		query: string;
+		headlines: number;
+		out: string;
+		image: boolean;
+		upload: boolean;
+	}>();
 
 	if (
 		!Number.isInteger(opts.headlines) ||
@@ -63,7 +69,13 @@ function parseCliArgs(argv: string[]): CliOptions {
 		);
 	}
 
-	return opts;
+	return {
+		query: opts.query,
+		headlines: opts.headlines,
+		out: opts.out,
+		noImage: !opts.image,
+		upload: opts.upload,
+	};
 }
 
 // AI calls live in src/ai.ts; helpers live in src/utils.ts.
