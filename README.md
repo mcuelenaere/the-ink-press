@@ -17,7 +17,7 @@ cp .env.example .env
 ```
 
 Then set:
-- `AI_GATEWAY_API_KEY` (used for both the OpenAI+web_search headlines step (`openai/gpt-5.6-sol`) and `google/gemini-3.1-flash-image`)
+- `AI_GATEWAY_API_KEY` (used for ChatGPT web search (`openai/gpt-5.6-sol`), Gemini Google Search (`google/gemini-3.1-flash`), and `google/gemini-3.1-flash-image`)
 
 ### Inkposter upload (optional)
 
@@ -44,9 +44,22 @@ bun run dev
 ## Useful flags
 
 ```bash
-bun run dev -- --query "top tech news today" --headlines 8
+bun run dev -- --query "top tech news today; emphasize AI + policy" --headlines 8
 bun run dev -- --no-image
 bun run dev -- --upload  # Generate and upload to Inkposter
+```
+
+The `--query` value is used both to guide web search and to shape the summary.
+Headlines are gathered from ChatGPT web search and Gemini Google Search in
+parallel.
+
+## RSS feeds (optional)
+
+You can add RSS feeds as extra context by providing one or more feed URLs:
+
+```bash
+bun run dev -- --rss https://example.com/rss
+bun run dev -- --rss https://a.com/rss,https://b.com/rss
 ```
 
 ## Output

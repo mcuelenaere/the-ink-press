@@ -3,12 +3,13 @@ import path from "node:path";
 import { Command } from "commander";
 
 import {
-	fetchDailyNews,
+	GEMINI_HEADLINES_MODEL,
 	generateImage,
 	HEADLINES_MODEL,
 	IMAGE_MODEL,
 } from "./ai";
 import { getInkposterConfig, InkposterAuth, uploadAndPoll } from "./inkposter";
+import { fetchDailyNews } from "./news";
 import {
 	fileExtensionFromMediaType,
 	getRequiredEnv,
@@ -20,12 +21,47 @@ import {
 } from "./utils";
 
 type CliOptions = {
-	query: string;
+	prompt: string;
 	headlines: number;
 	out: string;
 	noImage: boolean;
 	upload: boolean;
+	rssFeeds: string[];
 };
+
+function collectRssFeeds(value: string, previous: string[]) {
+	const parts = value
+		.split(",")
+		.map((part) => part.trim())
+		.filter(Boolean);
+	return previous.concat(parts);
+}
+
+function normalizeRssFeeds(values: string[]): string[] {
+	const unique = new Set<string>();
+	const feeds: string[] = [];
+
+	for (const value of values) {
+		const trimmed = value.trim();
+		if (!trimmed) continue;
+		let url: URL;
+		try {
+			url = new URL(trimmed);
+		} catch {
+			throw new Error(`Invalid RSS feed URL: ${trimmed}`);
+		}
+		if (url.protocol !== "http:" && url.protocol !== "https:") {
+			throw new Error(`RSS feed URL must be http or https: ${url.toString()}`);
+		}
+		const normalized = url.toString();
+		if (!unique.has(normalized)) {
+			unique.add(normalized);
+			feeds.push(normalized);
+		}
+	}
+
+	return feeds;
+}
 
 function parseCliArgs(argv: string[]): CliOptions {
 	const program = new Command();
@@ -37,7 +73,7 @@ function parseCliArgs(argv: string[]): CliOptions {
 		)
 		.option(
 			"--query <string>",
-			"Search query for today’s headlines",
+			"Prompt for web search + daily brief summary",
 			"top news headlines today",
 		)
 		.option(
@@ -45,6 +81,12 @@ function parseCliArgs(argv: string[]): CliOptions {
 			"Number of headlines to include",
 			(v) => Number(v),
 			10,
+		)
+		.option(
+			"--rss <url>",
+			"RSS feed URL (repeatable or comma-separated)",
+			collectRssFeeds,
+			[],
 		)
 		.option("--out <path>", "Output directory", "./out")
 		.option("--no-image", "Skip image generation (debug)")
@@ -57,6 +99,7 @@ function parseCliArgs(argv: string[]): CliOptions {
 		out: string;
 		image: boolean;
 		upload: boolean;
+		rss: string[];
 	}>();
 
 	if (
@@ -69,12 +112,15 @@ function parseCliArgs(argv: string[]): CliOptions {
 		);
 	}
 
+	const rssFeeds = normalizeRssFeeds(opts.rss);
+
 	return {
-		query: opts.query,
+		prompt: opts.query,
 		headlines: opts.headlines,
 		out: opts.out,
 		noImage: !opts.image,
 		upload: opts.upload,
+		rssFeeds,
 	};
 }
 
@@ -96,32 +142,40 @@ async function runCycle(cli: CliOptions, inkposterAuth: InkposterAuth | null) {
 	logStatus(`Cycle start (runId=${runId})`);
 	logStatus(`Preparing output dir: ${runDir}`);
 
+	const newsSourceConfig = {
+		prompt: cli.prompt,
+		rssFeeds: cli.rssFeeds.length > 0 ? cli.rssFeeds : undefined,
+	};
+
 	const manifest: Record<string, unknown> = {
 		runId,
 		startedAt: startedAt.toISOString(),
-		query: cli.query,
+		prompt: cli.prompt,
+		query: cli.prompt,
 		requestedHeadlineCount: cli.headlines,
+		rssFeeds: cli.rssFeeds.length > 0 ? cli.rssFeeds : undefined,
 		models: {
-			headlines: `gateway:${HEADLINES_MODEL} (with openai.web_search)`,
+			chatgptHeadlines: `gateway:${HEADLINES_MODEL} (with openai.web_search)`,
+			geminiHeadlines: `gateway:${GEMINI_HEADLINES_MODEL} (with google.google_search)`,
+			brief: `gateway:${HEADLINES_MODEL}`,
 			image: cli.noImage ? null : `gateway:${IMAGE_MODEL}`,
 		},
 	};
 
 	try {
 		logStatus(
-			`Headlines+prompt: starting (model=gateway:${HEADLINES_MODEL}, date=${dateLabel}, query=${JSON.stringify(cli.query)}, maxHeadlines=${cli.headlines})`,
+			`News: starting (date=${dateLabel}, prompt=${JSON.stringify(cli.prompt)}, maxHeadlines=${cli.headlines}, rssFeeds=${cli.rssFeeds.length})`,
 		);
 		const news = await fetchDailyNews({
-			query: cli.query,
-			maxHeadlines: cli.headlines,
+			source: newsSourceConfig,
 			dateLabel,
+			maxHeadlines: cli.headlines,
 			reporter: { info: (m) => logStatus(m) },
 		});
-		logStatus(
-			`Headlines+prompt: received (${news.headlines.length} headlines)`,
-		);
+		logStatus(`News: received (${news.headlines.length} headlines)`);
 
 		manifest.news = news;
+		manifest.newsSources = news.sources;
 
 		logStatus(`Writing summary + image prompt files...`);
 		await fs.promises.writeFile(
