@@ -21,7 +21,7 @@
 		"@napi-rs/image": "^1.14.0",
 		"ai": "^7.0.78",
 		"commander": "^15.0.0",
-		"fast-xml-parser": "^5.3.4",
+		"fast-xml-parser": "^5.11.0",
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
