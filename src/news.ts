@@ -9,27 +9,27 @@ export type NewsSourceConfig = {
 	rssFeeds?: string[];
 };
 
+type SourceInfo = {
+	id: NewsSourceId;
+	label: string;
+	meta?: NewsSourceResult["meta"];
+};
+
 export type NewsResult = {
 	dateLabel: string;
 	prompt: string;
 	headlines: NewsHeadline[];
-	webHeadlines: NewsHeadline[];
+	chatgptHeadlines: NewsHeadline[];
+	geminiHeadlines: NewsHeadline[];
 	rssHeadlines: NewsHeadline[];
 	summary: string;
 	concepts: string[];
 	captionText: string;
 	imagePrompt: string;
 	sources: {
-		webSearch: {
-			id: NewsSourceId;
-			label: string;
-			meta?: NewsSourceResult["meta"];
-		};
-		rssFeeds?: {
-			id: NewsSourceId;
-			label: string;
-			meta?: NewsSourceResult["meta"];
-		};
+		chatgptWebSearch: SourceInfo;
+		geminiWebSearch: SourceInfo;
+		rssFeeds?: SourceInfo;
 	};
 };
 
@@ -40,13 +40,20 @@ export async function fetchDailyNews(options: {
 	reporter?: Reporter;
 }): Promise<NewsResult> {
 	const { source, maxHeadlines, dateLabel, reporter } = options;
-	const webSearchModule = getNewsSourceModule("chatgpt-web-search");
+	const chatgptModule = getNewsSourceModule("chatgpt-web-search");
+	const geminiModule = getNewsSourceModule("gemini-web-search");
 	const rssFeedsModule = getNewsSourceModule("rss-feeds");
 
 	const rssFeeds = source.rssFeeds?.length ? source.rssFeeds : undefined;
 
-	const [webSearchResult, rssResult] = await Promise.all([
-		webSearchModule.fetchHeadlines({
+	const [chatgptResult, geminiResult, rssResult] = await Promise.all([
+		chatgptModule.fetchHeadlines({
+			prompt: source.prompt,
+			dateLabel,
+			maxHeadlines,
+			reporter,
+		}),
+		geminiModule.fetchHeadlines({
 			prompt: source.prompt,
 			dateLabel,
 			maxHeadlines,
@@ -63,10 +70,15 @@ export async function fetchDailyNews(options: {
 			: Promise.resolve(null),
 	]);
 
-	const webHeadlines = webSearchResult.headlines;
+	const chatgptHeadlines = chatgptResult.headlines;
+	const geminiHeadlines = geminiResult.headlines;
 	const rssHeadlines = rssResult?.headlines ?? [];
 
-	const headlines = dedupeHeadlines(webHeadlines, rssHeadlines);
+	const headlines = dedupeHeadlines(
+		chatgptHeadlines,
+		geminiHeadlines,
+		rssHeadlines,
+	);
 
 	if (headlines.length === 0) {
 		throw new Error("No headlines were returned from web search or RSS feeds.");
@@ -74,7 +86,8 @@ export async function fetchDailyNews(options: {
 
 	const brief = await generateDailyBrief({
 		prompt: source.prompt,
-		webHeadlines,
+		chatgptHeadlines,
+		geminiHeadlines,
 		rssHeadlines,
 		dateLabel,
 		reporter,
@@ -84,14 +97,20 @@ export async function fetchDailyNews(options: {
 		dateLabel,
 		prompt: source.prompt,
 		headlines,
-		webHeadlines,
+		chatgptHeadlines,
+		geminiHeadlines,
 		rssHeadlines,
 		...brief,
 		sources: {
-			webSearch: {
-				id: webSearchModule.id,
-				label: webSearchModule.displayName,
-				meta: webSearchResult.meta,
+			chatgptWebSearch: {
+				id: chatgptModule.id,
+				label: chatgptModule.displayName,
+				meta: chatgptResult.meta,
+			},
+			geminiWebSearch: {
+				id: geminiModule.id,
+				label: geminiModule.displayName,
+				meta: geminiResult.meta,
 			},
 			rssFeeds: rssResult
 				? {

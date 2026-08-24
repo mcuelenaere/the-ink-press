@@ -1,21 +1,30 @@
-import { openai } from "@ai-sdk/openai";
+import { google } from "@ai-sdk/google";
 import { gateway, isStepCount, Output, streamText, zodSchema } from "ai";
 import { z } from "zod";
 
 import { logLlmStream } from "../ai-utils";
-import { HEADLINES_MODEL } from "../models";
+import { GEMINI_HEADLINES_MODEL } from "../models";
 import { getReporter } from "../reporting";
 import type { NewsSourceModule, NewsSourceOptions } from "./types";
 import { buildWebSearchPrompt, HeadlineSchema } from "./web-search-prompt";
 
-export const chatgptWebSearchModule: NewsSourceModule = {
-	id: "chatgpt-web-search",
-	displayName: "ChatGPT Web Search",
+function last24HoursFilter() {
+	const endTime = new Date();
+	const startTime = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
+	return {
+		startTime: startTime.toISOString(),
+		endTime: endTime.toISOString(),
+	};
+}
+
+export const geminiWebSearchModule: NewsSourceModule = {
+	id: "gemini-web-search",
+	displayName: "Gemini Web Search",
 	async fetchHeadlines(options: NewsSourceOptions) {
 		const { prompt, maxHeadlines, dateLabel, reporter } = options;
 
 		if (!prompt.trim()) {
-			throw new Error("ChatGPT web search requires a non-empty prompt.");
+			throw new Error("Gemini web search requires a non-empty prompt.");
 		}
 
 		const report = getReporter(reporter);
@@ -25,14 +34,15 @@ export const chatgptWebSearchModule: NewsSourceModule = {
 			headlines: z.array(HeadlineSchema).min(1).max(maxHeadlines),
 		});
 
-		report(`NEWS: streaming start (model=gateway:${HEADLINES_MODEL})`);
+		report(`NEWS: streaming start (model=gateway:${GEMINI_HEADLINES_MODEL})`);
 		const result = await streamText({
-			model: gateway(HEADLINES_MODEL),
+			model: gateway(GEMINI_HEADLINES_MODEL),
 			toolChoice: "required",
 			stopWhen: isStepCount(5),
 			tools: {
-				web_search: openai.tools.webSearch({
-					searchContextSize: "high",
+				google_search: google.tools.googleSearch({
+					searchTypes: { webSearch: {} },
+					timeRangeFilter: last24HoursFilter(),
 				}),
 			},
 			output: Output.object({
@@ -51,8 +61,8 @@ export const chatgptWebSearchModule: NewsSourceModule = {
 		return {
 			headlines: out.headlines.slice(0, maxHeadlines),
 			meta: {
-				model: `gateway:${HEADLINES_MODEL}`,
-				tool: "openai.web_search",
+				model: `gateway:${GEMINI_HEADLINES_MODEL}`,
+				tool: "google.google_search",
 			},
 		};
 	},

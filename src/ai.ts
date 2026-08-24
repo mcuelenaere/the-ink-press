@@ -2,11 +2,11 @@ import { gateway, Output, streamText, zodSchema } from "ai";
 import { z } from "zod";
 
 import { logLlmStream, toOneLineJson } from "./ai-utils";
-import { HEADLINES_MODEL, IMAGE_MODEL } from "./models";
+import { GEMINI_HEADLINES_MODEL, HEADLINES_MODEL, IMAGE_MODEL } from "./models";
 import type { NewsHeadline } from "./news/types";
 import { getReporter, type Reporter } from "./reporting";
 
-export { HEADLINES_MODEL, IMAGE_MODEL };
+export { GEMINI_HEADLINES_MODEL, HEADLINES_MODEL, IMAGE_MODEL };
 
 const DailyBriefSchema = z.object({
 	summary: z.string().min(1),
@@ -34,20 +34,26 @@ function formatHeadlinesSection(label: string, headlines: NewsHeadline[]) {
 
 export async function generateDailyBrief(options: {
 	prompt: string;
-	webHeadlines: NewsHeadline[];
+	chatgptHeadlines: NewsHeadline[];
+	geminiHeadlines?: NewsHeadline[];
 	rssHeadlines?: NewsHeadline[];
 	dateLabel: string;
 	reporter?: Reporter;
 }): Promise<DailyBrief> {
 	const {
 		prompt,
-		webHeadlines,
+		chatgptHeadlines,
+		geminiHeadlines = [],
 		rssHeadlines = [],
 		dateLabel,
 		reporter,
 	} = options;
 
-	if (webHeadlines.length === 0 && rssHeadlines.length === 0) {
+	if (
+		chatgptHeadlines.length === 0 &&
+		geminiHeadlines.length === 0 &&
+		rssHeadlines.length === 0
+	) {
 		throw new Error("Daily brief requires at least one headline.");
 	}
 
@@ -71,14 +77,18 @@ export async function generateDailyBrief(options: {
 			`User prompt:`,
 			prompt,
 			``,
-			formatHeadlinesSection("Web search headlines", webHeadlines),
+			formatHeadlinesSection("ChatGPT web search headlines", chatgptHeadlines),
+			geminiHeadlines.length > 0
+				? formatHeadlinesSection("Gemini web search headlines", geminiHeadlines)
+				: "",
 			rssHeadlines.length > 0
 				? formatHeadlinesSection("RSS feed headlines", rssHeadlines)
 				: "",
 			``,
 			`Rules:`,
 			`- Use ONLY the provided headlines; do not add new stories.`,
-			`- Use BOTH the web search and RSS headlines if provided.`,
+			`- Combine ChatGPT web search, Gemini web search, and RSS headlines when provided.`,
+			`- Prefer complementary coverage: include stories that appear in only one source, not just the overlap.`,
 			`- Use the user prompt to decide what to emphasize.`,
 			`- Write a concise summary (5-8 sentences).`,
 			`- Choose 1-3 short 'concepts' that best represent the day. This is the MAX number of concepts allowed in the image.`,

@@ -1,7 +1,10 @@
 import type { NewsHeadline } from "../news/types";
 import type { Reporter } from "../reporting";
 
-export type NewsSourceId = "chatgpt-web-search" | "rss-feeds";
+export type NewsSourceId =
+	| "chatgpt-web-search"
+	| "gemini-web-search"
+	| "rss-feeds";
 
 export type NewsSourceOptions = {
 	prompt: string;

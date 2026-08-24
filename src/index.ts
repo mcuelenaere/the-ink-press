@@ -2,7 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { Command } from "commander";
 
-import { generateImage, HEADLINES_MODEL, IMAGE_MODEL } from "./ai";
+import {
+	GEMINI_HEADLINES_MODEL,
+	generateImage,
+	HEADLINES_MODEL,
+	IMAGE_MODEL,
+} from "./ai";
 import { getInkposterConfig, InkposterAuth, uploadAndPoll } from "./inkposter";
 import { fetchDailyNews } from "./news";
 import {
@@ -150,7 +155,8 @@ async function runCycle(cli: CliOptions, inkposterAuth: InkposterAuth | null) {
 		requestedHeadlineCount: cli.headlines,
 		rssFeeds: cli.rssFeeds.length > 0 ? cli.rssFeeds : undefined,
 		models: {
-			headlines: `gateway:${HEADLINES_MODEL} (with openai.web_search)`,
+			chatgptHeadlines: `gateway:${HEADLINES_MODEL} (with openai.web_search)`,
+			geminiHeadlines: `gateway:${GEMINI_HEADLINES_MODEL} (with google.google_search)`,
 			brief: `gateway:${HEADLINES_MODEL}`,
 			image: cli.noImage ? null : `gateway:${IMAGE_MODEL}`,
 		},
