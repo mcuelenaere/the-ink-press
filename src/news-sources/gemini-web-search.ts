@@ -3,7 +3,7 @@ import { gateway, isStepCount, Output, streamText, zodSchema } from "ai";
 import { z } from "zod";
 
 import { logLlmStream } from "../ai-utils";
-import { GEMINI_HEADLINES_MODEL, GEMINI_PROVIDER_OPTIONS } from "../models";
+import { GEMINI_HEADLINES_MODEL } from "../models";
 import { getReporter } from "../reporting";
 import type { NewsSourceModule, NewsSourceOptions } from "./types";
 import { buildWebSearchPrompt, HeadlineSchema } from "./web-search-prompt";
@@ -37,7 +37,6 @@ export const geminiWebSearchModule: NewsSourceModule = {
 		report(`NEWS: streaming start (model=gateway:${GEMINI_HEADLINES_MODEL})`);
 		const result = await streamText({
 			model: gateway(GEMINI_HEADLINES_MODEL),
-			providerOptions: GEMINI_PROVIDER_OPTIONS,
 			toolChoice: "required",
 			stopWhen: isStepCount(5),
 			tools: {

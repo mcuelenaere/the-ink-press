@@ -5,10 +5,8 @@ import { logLlmStream, toOneLineJson } from "./ai-utils";
 import {
 	CHATGPT_HEADLINES_MODEL,
 	GEMINI_HEADLINES_MODEL,
-	GEMINI_PROVIDER_OPTIONS,
 	HEADLINES_MODEL,
 	IMAGE_MODEL,
-	OPENAI_PROVIDER_OPTIONS,
 } from "./models";
 import type { NewsHeadline } from "./news/types";
 import { getReporter, type Reporter } from "./reporting";
@@ -75,7 +73,6 @@ export async function generateDailyBrief(options: {
 	report(`BRIEF: streaming start (model=gateway:${HEADLINES_MODEL})`);
 	const result = await streamText({
 		model: gateway(HEADLINES_MODEL),
-		providerOptions: OPENAI_PROVIDER_OPTIONS,
 		output: Output.object({
 			schema: zodSchema(DailyBriefSchema),
 			name: "DailyBrief",
@@ -142,9 +139,7 @@ export async function generateImage(options: {
 		model: gateway(IMAGE_MODEL),
 		maxRetries: 2,
 		providerOptions: {
-			...GEMINI_PROVIDER_OPTIONS,
 			google: {
-				...GEMINI_PROVIDER_OPTIONS.google,
 				responseModalities: ["IMAGE"],
 				thinkingConfig: { thinkingLevel: "high" },
 			},
