@@ -20,15 +20,15 @@ function getNewsSourceModule(id: NewsSourceId): NewsSourceModule {
 	return NEWS_SOURCE_MODULES[id];
 }
 
-export {
-	NEWS_SOURCE_IDS,
-	NEWS_SOURCE_MODULES,
-	getNewsSourceModule,
-	isNewsSourceId,
-};
 export type {
 	NewsSourceId,
 	NewsSourceModule,
 	NewsSourceOptions,
 	NewsSourceResult,
 } from "./types";
+export {
+	getNewsSourceModule,
+	isNewsSourceId,
+	NEWS_SOURCE_IDS,
+	NEWS_SOURCE_MODULES,
+};

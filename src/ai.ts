@@ -39,7 +39,13 @@ export async function generateDailyBrief(options: {
 	dateLabel: string;
 	reporter?: Reporter;
 }): Promise<DailyBrief> {
-	const { prompt, webHeadlines, rssHeadlines = [], dateLabel, reporter } = options;
+	const {
+		prompt,
+		webHeadlines,
+		rssHeadlines = [],
+		dateLabel,
+		reporter,
+	} = options;
 
 	if (webHeadlines.length === 0 && rssHeadlines.length === 0) {
 		throw new Error("Daily brief requires at least one headline.");
